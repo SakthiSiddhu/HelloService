@@ -2,7 +2,7 @@ spring:
   application:
     name: helloservice
 server:
-  port: 8071
+  port: 5000
 eureka:
   client:
     registerWithEureka: true
