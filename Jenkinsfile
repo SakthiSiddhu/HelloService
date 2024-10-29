@@ -27,7 +27,7 @@ pipeline {
                     def projectName = 'helloservice'
                     def imageName = "bharathkamal/${projectName}:${dockerTag}"
                     
-                    withCredentials([usernamePassword(credentialsId: 'docker-hub', passwordVariable: 'DOCKER_PASSWORD', usernameVariable: 'DOCKER_USERNAME')]) {
+                    withCredentials([usernamePassword(credentialsId: 'docker-hub2', passwordVariable: 'DOCKER_PASSWORD', usernameVariable: 'DOCKER_USERNAME')]) {
                         sh 'docker build -t ${imageName} .'
                         sh 'echo $DOCKER_PASSWORD | docker login -u $DOCKER_USERNAME --password-stdin'
                         sh 'docker push ${imageName}'
