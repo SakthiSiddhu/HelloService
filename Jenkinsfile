@@ -1,11 +1,14 @@
 pipeline {
     agent any
+
     tools {
-        maven 'Maven_3.9.91'
+        maven 'Maven_3.9.9'
     }
+
     environment {
         KUBECONFIG = '/home/ec2-user/.kube/config'
     }
+
     stages {
         stage('Checkout') {
             steps {
@@ -17,31 +20,29 @@ pipeline {
                 sh 'mvn clean package -DskipTests'
             }
         }
-        stage('Build Docker Image') {
+        stage('Docker Build and Push') {
             steps {
                 script {
-                    def dockerTag = "${env.BUILD_NUMBER}"
-                    def imageName = 'bharathkamal/helloservice:' + dockerTag
-                    sh "docker build -t ${imageName} ."
-                }
-            }
-        }
-        stage('Docker Login and Push') {
-            steps {
-                withCredentials([usernamePassword(credentialsId: 'docker-hub', passwordVariable: 'DOCKER_PASSWORD', usernameVariable: 'DOCKER_USERNAME')]) {
-                    sh 'echo $DOCKER_PASSWORD | docker login -u $DOCKER_USERNAME --password-stdin'
-                    sh 'docker push ${imageName}'
+                    def dockerTag = 'latest'
+                    def projectName = 'helloservice'
+                    def imageName = "bharathkamal/${projectName}:${dockerTag}"
+                    
+                    withCredentials([usernamePassword(credentialsId: 'docker-hub', passwordVariable: 'DOCKER_PASSWORD', usernameVariable: 'DOCKER_USERNAME')]) {
+                        sh 'docker build -t ${imageName} .'
+                        sh 'echo $DOCKER_PASSWORD | docker login -u $DOCKER_USERNAME --password-stdin'
+                        sh 'docker push ${imageName}'
+                    }
                 }
             }
         }
         stage('Deploy to Kubernetes') {
             steps {
                 script {
-                    def deployment = '''
+                    writeFile file: 'deployment.yaml', text: '''
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: helloservice
+  name: helloservice-deployment
 spec:
   replicas: 1
   selector:
@@ -54,26 +55,25 @@ spec:
     spec:
       containers:
       - name: helloservice
-        image: ${imageName}
+        image: bharathkamal/helloservice:latest
         ports:
         - containerPort: 5000
-'''
-                    def service = '''
+                    '''
+
+                    writeFile file: 'service.yaml', text: '''
 apiVersion: v1
 kind: Service
 metadata:
-  name: helloservice
+  name: helloservice-service
 spec:
-  type: NodePort
   selector:
     app: helloservice
   ports:
-    - port: 5000
+    - protocol: TCP
+      port: 5000
       targetPort: 5000
-      nodePort: 30007
-'''
-                    writeFile file: 'deployment.yaml', text: deployment
-                    writeFile file: 'service.yaml', text: service
+                    '''
+
                     sh 'kubectl apply -f deployment.yaml'
                     sh 'kubectl apply -f service.yaml'
                 }
