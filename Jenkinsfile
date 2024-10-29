@@ -1,7 +1,7 @@
 pipeline {
     agent any
     tools {
-        maven 'Maven_3.9.9'
+        maven 'Maven_3.9.91'
     }
     environment {
         KUBECONFIG = '/home/ec2-user/.kube/config'
