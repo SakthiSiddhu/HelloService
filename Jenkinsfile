@@ -2,7 +2,7 @@ pipeline {
     agent any
 
     tools {
-        maven 'Maven_3.9.9'
+        maven 'Maven_3.10.10'
     }
 
     environment {
@@ -12,7 +12,7 @@ pipeline {
     stages {
         stage('Checkout') {
             steps {
-                git branch: 'main', url: 'https://github.com/DatlaBharath/HelloService'
+                git branch: 'main', url: 'https://github.com/SakthiSiddhu/TodoBackend'
             }
         }
 
@@ -26,7 +26,7 @@ pipeline {
             steps {
                 script {
                     def dockerTag = "latest"
-                    def projectName = "helloservice"
+                    def projectName = "todobackend"
                     sh "docker build -t sakthisiddu1/${projectName}:${dockerTag} ."
                 }
             }
@@ -37,7 +37,7 @@ pipeline {
                 withCredentials([usernamePassword(credentialsId: 'dockerhubpwd', passwordVariable: 'DOCKER_PASSWORD', usernameVariable: 'DOCKER_USERNAME')]) {
                     sh 'echo $DOCKER_PASSWORD | docker login -u $DOCKER_USERNAME --password-stdin'
                     def dockerTag = "latest"
-                    def projectName = "helloservice"
+                    def projectName = "todobackend"
                     sh "docker push sakthisiddu1/${projectName}:${dockerTag}"
                 }
             }
@@ -46,7 +46,7 @@ pipeline {
         stage('Deploy to Kubernetes') {
             steps {
                 script {
-                    def projectName = "helloservice"
+                    def projectName = "todobackend"
                     def dockerTag = "latest"
                     def deploymentYaml = """
                     apiVersion: apps/v1
@@ -92,14 +92,14 @@ pipeline {
 
         stage('Wait for Deployment') {
             steps {
-                sleep 60
+                sleep time: 1, unit: 'MINUTES'
             }
         }
 
         stage('Port Forward') {
             steps {
                 script {
-                    def projectName = "helloservice"
+                    def projectName = "todobackend"
                     sh "kubectl port-forward --address 0.0.0.0 service/${projectName} 5000:5000"
                 }
             }
