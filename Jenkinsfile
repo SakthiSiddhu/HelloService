@@ -1,4 +1,3 @@
-```
 pipeline {
     agent any
     tools {
@@ -82,4 +81,3 @@ spec:
         }
     }
 }
-```
