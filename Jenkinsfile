@@ -86,7 +86,7 @@ spec:
     app: ${projectName}
   ports:
     - protocol: TCP
-      port: 80
+      port: 5000
       targetPort: 5000
                     """
                     writeFile file: 'deployment.yaml', text: deploymentYaml
