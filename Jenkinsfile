@@ -1,91 +1,87 @@
 pipeline {
     agent any
+
     tools {
         maven 'Maven'
     }
+
     environment {
         KUBECONFIG = "/home/ec2-user/.kube/config"
     }
+
     stages {
         stage('Checkout') {
             steps {
-                git url: 'https://github.com/DatlaBharath/HelloService', branch: 'main'
+                git branch: 'main',
+                    url: 'https://github.com/DatlaBharath/HelloService.git'
             }
         }
+
         stage('Build') {
             steps {
                 sh 'mvn clean package -DskipTests'
             }
         }
-        stage('Build Docker Image') {
+
+        stage('Docker Build & Push') {
             steps {
                 script {
-                    def projectName = 'helloservice' // derived from repo URL
-                    def dockerTag = 'latest'
-                    def imageName = "ratneshpuskar/${projectName}:${dockerTag}"
-                    sh "docker build -t ${imageName} ."
-                }
-            }
-        }
-        stage('Push Docker Image') {
-            steps {
-                withCredentials([usernamePassword(credentialsId: 'dockerhub_credentials', usernameVariable: 'DOCKER_USERNAME', passwordVariable: 'DOCKER_PASSWORD')]) {
-                    script {
-                        def projectName = 'helloservice'
-                        def dockerTag = 'latest'
-                        def imageName = "ratneshpuskar/${projectName}:${dockerTag}"
-                        sh "echo $DOCKER_PASSWORD | docker login -u $DOCKER_USERNAME --password-stdin"
-                        sh "docker push ${imageName}"
+                    def projectname = 'helloservice'
+                    def dockerTag = "latest"
+                    sh "docker build -t ratneshpuskar/${projectname}:${dockerTag} ."
+                    withCredentials([usernamePassword(credentialsId: 'dockerhub_credentials', passwordVariable: 'DOCKER_PASS', usernameVariable: 'DOCKER_USER')]) {
+                        sh "echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin"
+                        sh "docker push ratneshpuskar/${projectname}:${dockerTag}"
                     }
                 }
             }
         }
+
         stage('Deploy to Kubernetes') {
             steps {
                 script {
-                    def projectName = 'helloservice'
-                    def dockerTag = 'latest'
-                    def imageName = "ratneshpuskar/${projectName}:${dockerTag}"
-                    def deploymentYaml = """
-                    apiVersion: apps/v1
-                    kind: Deployment
-                    metadata:
-                      name: ${projectName}-deployment
-                    spec:
-                      replicas: 2
-                      selector:
-                        matchLabels:
-                          app: ${projectName}
-                      template:
+                    def projectname = 'helloservice'
+                    def dockerTag = "latest"
+                    sh """
+                        cat <<EOF > deployment.yml
+                        apiVersion: apps/v1
+                        kind: Deployment
                         metadata:
-                          labels:
-                            app: ${projectName}
+                          name: ${projectname}
                         spec:
-                          containers:
-                          - name: ${projectName}
-                            image: ${imageName}
-                            ports:
-                            - containerPort: 5000
+                          replicas: 1
+                          selector:
+                            matchLabels:
+                              app: ${projectname}
+                          template:
+                            metadata:
+                              labels:
+                                app: ${projectname}
+                            spec:
+                              containers:
+                              - name: ${projectname}
+                                image: ratneshpuskar/${projectname}:${dockerTag}
+                                ports:
+                                - containerPort: 5000
+                        EOF
                     """
-                    sh "echo '${deploymentYaml}' > deployment.yaml"
-
-                    def serviceYaml = """
-                    apiVersion: v1
-                    kind: Service
-                    metadata:
-                      name: ${projectName}-service
-                    spec:
-                      type: NodePort
-                      selector:
-                        app: ${projectName}
-                      ports:
-                        - protocol: TCP
-                          port: 5000
-                          targetPort: 5000
+                    sh """
+                        cat <<EOF > service.yml
+                        kind: Service
+                        apiVersion: v1
+                        metadata:
+                          name: ${projectname}-service
+                        spec:
+                          selector:
+                            app: ${projectname}
+                          ports:
+                            - protocol: TCP
+                              port: 5000
+                              targetPort: 5000
+                        EOF
                     """
-                    sh "echo '${serviceYaml}' > service.yaml"
-                    sh "kubectl apply -f deployment.yaml"
-                    sh "kubectl apply -f service.yaml"
+                    sh 'kubectl apply -f deployment.yml'
+                    sh 'kubectl apply -f service.yml'
                 }
             }
         }
