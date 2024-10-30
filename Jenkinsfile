@@ -1,99 +1,80 @@
 pipeline {
     agent any
-    
     tools {
-        maven 'Maven_3.9.9'
+        maven 'Maven'
     }
-    
     environment {
         KUBECONFIG = '/home/ec2-user/.kube/config'
     }
-    
     stages {
-        stage('Clone Repository') {
+        stage('Checkout') {
             steps {
-                git url: 'https://github.com/DatlaBharath/HelloService', branch: 'main'
+                git branch: 'main', url: 'https://github.com/DatlaBharath/HelloService'
             }
         }
-        
-        stage('Build Maven Project') {
+        stage('Build') {
             steps {
                 sh 'mvn clean package -DskipTests'
             }
         }
-        
         stage('Build Docker Image') {
+            environment {
+                PROJECT_NAME = 'helloservice'
+                DOCKER_TAG = 'latest'
+            }
             steps {
                 script {
-                    def projectName = 'helloservice'
-                    def dockerTag = 'latest'
-                    def imageName = "bharathkamal/${projectName.toLowerCase()}:${dockerTag}"
-                    
-                    sh "docker build -t ${imageName} ."
+                    dockerImage = docker.build("${DOCKER_REGISTRY}/${PROJECT_NAME}:${DOCKER_TAG}")
                 }
             }
         }
-        
         stage('Push Docker Image') {
             steps {
-                withCredentials([usernamePassword(credentialsId: 'docker-hub', passwordVariable: 'DOCKERHUB_PASSWORD', usernameVariable: 'DOCKERHUB_USERNAME')]) {
-                    script {
-                        def projectName = 'helloservice'
-                        def dockerTag = 'latest'
-                        def imageName = "bharathkamal/${projectName.toLowerCase()}:${dockerTag}"
-                        
-                        sh "echo ${DOCKERHUB_PASSWORD} | docker login -u ${DOCKERHUB_USERNAME} --password-stdin"
-                        sh "docker push ${imageName}"
-                    }
+                withCredentials([usernamePassword(credentialsId: 'dockerhub_credentials', usernameVariable: 'DOCKER_USERNAME', passwordVariable: 'DOCKER_PASSWORD')]) {
+                    sh 'docker login -u $DOCKER_USERNAME -p $DOCKER_PASSWORD'
+                    sh 'docker push ${DOCKER_REGISTRY}/${PROJECT_NAME}:${DOCKER_TAG}'
                 }
             }
         }
-        
         stage('Deploy to Kubernetes') {
             steps {
                 script {
-                    def projectName = 'helloservice'
-                    def dockerTag = 'latest'
-                    def imageName = "bharathkamal/${projectName.toLowerCase()}:${dockerTag}"
-                    def deploymentYaml = """
+                    writeFile file: 'deployment.yml', text: """
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: ${projectName}
+  name: ${PROJECT_NAME}
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: ${projectName}
+      app: ${PROJECT_NAME}
   template:
     metadata:
       labels:
-        app: ${projectName}
+        app: ${PROJECT_NAME}
     spec:
       containers:
-        - name: ${projectName}
-          image: ${imageName}
-          ports:
-            - containerPort: 5000
-                    """
-                    def serviceYaml = """
+      - name: ${PROJECT_NAME}
+        image: ${DOCKER_REGISTRY}/${PROJECT_NAME}:${DOCKER_TAG}
+        ports:
+        - containerPort: 5000
+"""
+                    writeFile file: 'service.yml', text: """
 apiVersion: v1
 kind: Service
 metadata:
-  name: ${projectName}-service
+  name: ${PROJECT_NAME}
 spec:
   selector:
-    app: ${projectName}
+    app: ${PROJECT_NAME}
   ports:
-    - protocol: TCP
-      port: 5000
-      targetPort: 5000
-                    """
-                    writeFile file: 'deployment.yaml', text: deploymentYaml
-                    writeFile file: 'service.yaml', text: serviceYaml
-                    
-                    sh 'kubectl apply -f deployment.yaml'
-                    sh 'kubectl apply -f service.yaml'
+  - protocol: TCP
+    port: 80
+    targetPort: 5000
+"""
+                    sh 'kubectl apply -f deployment.yml'
+                    sh 'kubectl apply -f service.yml'
                 }
             }
         }
