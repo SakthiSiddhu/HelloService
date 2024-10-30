@@ -4,12 +4,12 @@ pipeline {
         maven 'Maven'
     }
     environment {
-        KUBECONFIG = '/home/ec2-user/.kube/config'
+        KUBECONFIG = "/home/ec2-user/.kube/config"
     }
     stages {
         stage('Checkout') {
             steps {
-                git branch: 'main', url: 'https://github.com/DatlaBharath/HelloService'
+                git url: 'https://github.com/DatlaBharath/HelloService', branch: 'main'
             }
         }
         stage('Build') {
@@ -18,63 +18,74 @@ pipeline {
             }
         }
         stage('Build Docker Image') {
-            environment {
-                PROJECT_NAME = 'helloservice'
-                DOCKER_TAG = 'latest'
-            }
             steps {
                 script {
-                    dockerImage = docker.build("${DOCKER_REGISTRY}/${PROJECT_NAME}:${DOCKER_TAG}")
+                    def projectName = 'helloservice' // derived from repo URL
+                    def dockerTag = 'latest'
+                    def imageName = "ratneshpuskar/${projectName}:${dockerTag}"
+                    sh "docker build -t ${imageName} ."
                 }
             }
         }
         stage('Push Docker Image') {
             steps {
                 withCredentials([usernamePassword(credentialsId: 'dockerhub_credentials', usernameVariable: 'DOCKER_USERNAME', passwordVariable: 'DOCKER_PASSWORD')]) {
-                    sh 'docker login -u $DOCKER_USERNAME -p $DOCKER_PASSWORD'
-                    sh 'docker push ${DOCKER_REGISTRY}/${PROJECT_NAME}:${DOCKER_TAG}'
+                    script {
+                        def projectName = 'helloservice'
+                        def dockerTag = 'latest'
+                        def imageName = "ratneshpuskar/${projectName}:${dockerTag}"
+                        sh "echo $DOCKER_PASSWORD | docker login -u $DOCKER_USERNAME --password-stdin"
+                        sh "docker push ${imageName}"
+                    }
                 }
             }
         }
         stage('Deploy to Kubernetes') {
             steps {
                 script {
-                    writeFile file: 'deployment.yml', text: """
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: ${PROJECT_NAME}
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: ${PROJECT_NAME}
-  template:
-    metadata:
-      labels:
-        app: ${PROJECT_NAME}
-    spec:
-      containers:
-      - name: ${PROJECT_NAME}
-        image: ${DOCKER_REGISTRY}/${PROJECT_NAME}:${DOCKER_TAG}
-        ports:
-        - containerPort: 5000
-"""
-                    writeFile file: 'service.yml', text: """
-apiVersion: v1
-kind: Service
-metadata:
-  name: ${PROJECT_NAME}
-spec:
-  selector:
-    app: ${PROJECT_NAME}
-  ports:
-  - protocol: TCP
-    port: 80
-    targetPort: 5000
-"""
-                    sh 'kubectl apply -f deployment.yml'
-                    sh 'kubectl apply -f service.yml'
+                    def projectName = 'helloservice'
+                    def dockerTag = 'latest'
+                    def imageName = "ratneshpuskar/${projectName}:${dockerTag}"
+                    def deploymentYaml = """
+                    apiVersion: apps/v1
+                    kind: Deployment
+                    metadata:
+                      name: ${projectName}-deployment
+                    spec:
+                      replicas: 2
+                      selector:
+                        matchLabels:
+                          app: ${projectName}
+                      template:
+                        metadata:
+                          labels:
+                            app: ${projectName}
+                        spec:
+                          containers:
+                          - name: ${projectName}
+                            image: ${imageName}
+                            ports:
+                            - containerPort: 5000
+                    """
+                    sh "echo '${deploymentYaml}' > deployment.yaml"
+
+                    def serviceYaml = """
+                    apiVersion: v1
+                    kind: Service
+                    metadata:
+                      name: ${projectName}-service
+                    spec:
+                      type: NodePort
+                      selector:
+                        app: ${projectName}
+                      ports:
+                        - protocol: TCP
+                          port: 5000
+                          targetPort: 5000
+                    """
+                    sh "echo '${serviceYaml}' > service.yaml"
+                    sh "kubectl apply -f deployment.yaml"
+                    sh "kubectl apply -f service.yaml"
                 }
             }
         }
