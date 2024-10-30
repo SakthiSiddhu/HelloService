@@ -9,7 +9,7 @@ pipeline {
     stages {
         stage('Checkout') {
             steps {
-                git url: 'https://github.com/DatlaBharath/HelloService', branch: 'main'
+                git branch: 'main', url: 'https://github.com/DatlaBharath/HelloService'
             }
         }
         stage('Build') {
@@ -17,65 +17,69 @@ pipeline {
                 sh 'mvn clean package -DskipTests'
             }
         }
-        stage('Docker Build and Push') {
+        stage('Build Docker Image') {
             steps {
                 script {
-                    def appName = "helloservice"
-                    def dockerTag = "${appName}:dockerTag"
-                    def dockerImage = "ratneshpuskar/${dockerTag}".toLowerCase()
-                    
+                    def projectName = 'HelloService'.toLowerCase()
+                    def dockerTag = 'latest'
+                    sh "docker build -t ratneshpuskar/${projectName}:${dockerTag} ."
+                }
+            }
+        }
+        stage('Push Docker Image') {
+            steps {
+                script {
                     withCredentials([usernamePassword(credentialsId: 'dockerhub_credentials', usernameVariable: 'DOCKER_USERNAME', passwordVariable: 'DOCKER_PASSWORD')]) {
-                        sh """
-                        docker build -t ${dockerImage} .
-                        echo $DOCKER_PASSWORD | docker login -u $DOCKER_USERNAME --password-stdin
-                        docker push ${dockerImage}
-                        """
+                        sh '''
+                            echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
+                            docker push ratneshpuskar/helloservice:latest
+                        '''
                     }
                 }
             }
         }
-        stage('Kubernetes Deploy') {
+        stage('Deploy to Kubernetes') {
             steps {
                 script {
-                    def appName = "helloservice"
-                    def dockerTag = "${appName}:dockerTag"
-                    def dockerImage = "ratneshpuskar/${dockerTag}".toLowerCase()
-
-                    sh """
-                    cat <<EOF | kubectl apply -f -
-                    apiVersion: apps/v1
-                    kind: Deployment
-                    metadata:
-                      name: ${appName}
-                    spec:
-                      replicas: 1
-                      selector:
-                        matchLabels:
-                          app: ${appName}
-                      template:
-                        metadata:
-                          labels:
-                            app: ${appName}
-                        spec:
-                          containers:
-                          - name: ${appName}
-                            image: ${dockerImage}
-                            ports:
-                            - containerPort: 5000
-                    ---
-                    apiVersion: v1
-                    kind: Service
-                    metadata:
-                      name: ${appName}-service
-                    spec:
-                      selector:
-                        app: ${appName}
-                      ports:
-                      - protocol: TCP
-                        port: 80
-                        targetPort: 5000
-                    EOF
-                    """
+                    def deploymentYaml = '''
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: helloservice-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: helloservice
+  template:
+    metadata:
+      labels:
+        app: helloservice
+    spec:
+      containers:
+      - name: helloservice
+        image: ratneshpuskar/helloservice:latest
+        ports:
+        - containerPort: 5000
+'''
+                    def serviceYaml = '''
+apiVersion: v1
+kind: Service
+metadata:
+  name: helloservice-service
+spec:
+  selector:
+    app: helloservice
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 5000
+  type: LoadBalancer
+'''
+                    writeFile file: 'deployment.yaml', text: deploymentYaml
+                    writeFile file: 'service.yaml', text: serviceYaml
+                    sh 'kubectl apply -f deployment.yaml'
+                    sh 'kubectl apply -f service.yaml'
                 }
             }
         }
