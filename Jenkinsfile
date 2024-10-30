@@ -2,7 +2,7 @@ pipeline {
     agent any
 
     tools {
-        maven 'Maven'
+        maven "Maven"
     }
 
     environment {
@@ -12,76 +12,73 @@ pipeline {
     stages {
         stage('Checkout') {
             steps {
-                git branch: 'main',
-                    url: 'https://github.com/DatlaBharath/HelloService.git'
+                git branch: 'main', url: 'https://github.com/DatlaBharath/HelloService'
             }
         }
-
         stage('Build') {
             steps {
-                sh 'mvn clean package -DskipTests'
+                sh 'mvn clean install -DskipTests'
             }
         }
-
-        stage('Docker Build & Push') {
+        stage('Build Docker Image') {
             steps {
                 script {
-                    def projectname = 'helloservice'
-                    def dockerTag = "latest"
-                    sh "docker build -t ratneshpuskar/${projectname}:${dockerTag} ."
-                    withCredentials([usernamePassword(credentialsId: 'dockerhub_credentials', passwordVariable: 'DOCKER_PASS', usernameVariable: 'DOCKER_USER')]) {
-                        sh "echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin"
-                        sh "docker push ratneshpuskar/${projectname}:${dockerTag}"
-                    }
+                    def projectName = 'helloservice'
+                    def dockerTag = "${env.BUILD_NUMBER}"
+                    sh "docker build -t ratneshpuskar/${projectName}:${dockerTag} ."
                 }
             }
         }
-
+        stage('Docker Login and Push') {
+            steps {
+                withCredentials([usernamePassword(credentialsId: 'dockerhub_credentials', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
+                    sh '''
+                        echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin
+                        docker push ratneshpuskar/helloservice:${BUILD_NUMBER}
+                    '''
+                }
+            }
+        }
         stage('Deploy to Kubernetes') {
             steps {
                 script {
-                    def projectname = 'helloservice'
-                    def dockerTag = "latest"
+                    def imageTag = "ratneshpuskar/helloservice:${BUILD_NUMBER}"
                     sh """
-                        cat <<EOF > deployment.yml
+                        echo "
                         apiVersion: apps/v1
                         kind: Deployment
                         metadata:
-                          name: ${projectname}
+                          name: helloservice-deployment
                         spec:
                           replicas: 1
                           selector:
                             matchLabels:
-                              app: ${projectname}
+                              app: helloservice
                           template:
                             metadata:
                               labels:
-                                app: ${projectname}
+                                app: helloservice
                             spec:
                               containers:
-                              - name: ${projectname}
-                                image: ratneshpuskar/${projectname}:${dockerTag}
+                              - name: helloservice
+                                image: ${imageTag}
                                 ports:
                                 - containerPort: 5000
-                        EOF
-                    """
-                    sh """
-                        cat <<EOF > service.yml
-                        kind: Service
+                        ---
                         apiVersion: v1
+                        kind: Service
                         metadata:
-                          name: ${projectname}-service
+                          name: helloservice-service
                         spec:
                           selector:
-                            app: ${projectname}
+                            app: helloservice
                           ports:
                             - protocol: TCP
-                              port: 5000
+                              port: 80
                               targetPort: 5000
-                        EOF
+                        " > k8s_deployment.yaml
+                        kubectl apply -f k8s_deployment.yaml
                     """
-                    sh 'kubectl apply -f deployment.yml'
-                    sh 'kubectl apply -f service.yml'
                 }
             }
         }
