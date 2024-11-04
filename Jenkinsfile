@@ -1,93 +1,84 @@
 pipeline {
     agent any
-
     tools {
         maven 'Maven'
     }
-
     environment {
-        kubernetesConfig = '/home/user/.kube/config'
+        KUBECONFIG = '/home/ec2-user/.kube/config'
     }
-
     stages {
         stage('Checkout') {
             steps {
-                git branch: 'main',
-                    url: 'https://github.com/DatlaBharath/HelloService'
+                git url: 'https://github.com/DatlaBharath/HelloService', branch: 'main'
             }
         }
-
         stage('Build') {
             steps {
                 sh 'mvn clean package -DskipTests'
             }
         }
-
-        stage('Docker Build and Push') {
+        stage('Docker Build') {
             steps {
                 script {
-                    def appName = 'helloservice'
-                    def dockerImage = "ratneshpuskar/${appName.toLowerCase()}:dockerTag"
-
+                    def dockerImage = "ratneshpuskar/${env.JOB_NAME.toLowerCase()}:${env.BUILD_NUMBER}"
                     sh "docker build -t ${dockerImage} ."
-
-                    withCredentials([usernamePassword(credentialsId: 'dockerhub_credentials', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
-                        sh "echo ${DOCKER_PASS} | docker login -u ${DOCKER_USER} --password-stdin"
+                }
+            }
+        }
+        stage('Docker Push') {
+            steps {
+                script {
+                    def dockerImage = "ratneshpuskar/${env.JOB_NAME.toLowerCase()}:${env.BUILD_NUMBER}"
+                    withCredentials([usernamePassword(credentialsId: 'dockerhub_credentials', passwordVariable: 'DOCKER_PASSWORD', usernameVariable: 'DOCKER_USERNAME')]) {
+                        sh 'echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin'
                         sh "docker push ${dockerImage}"
-                        sh "docker logout"
                     }
                 }
             }
         }
-
         stage('Deploy to Kubernetes') {
             steps {
                 script {
-                    def appName = 'helloservice'
-                    def dockerImage = "ratneshpuskar/${appName.toLowerCase()}:dockerTag"
                     def deploymentYaml = """
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: ${appName}-deployment
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: ${appName}
-  template:
-    metadata:
-      labels:
-        app: ${appName}
-    spec:
-      containers:
-      - name: ${appName}
-        image: ${dockerImage}
-        ports:
-        - containerPort: 5000
-"""
-                    def serviceYaml = """
-apiVersion: v1
-kind: Service
-metadata:
-  name: ${appName}-service
-spec:
-  type: NodePort
-  ports:
-    - port: 5000
-      targetPort: 5000
-      nodePort: 30000
-  selector:
-    app: ${appName}
-"""
-
+                    apiVersion: apps/v1
+                    kind: Deployment
+                    metadata:
+                      name: helloservice-deployment
+                    spec:
+                      replicas: 1
+                      selector:
+                        matchLabels:
+                          app: helloservice
+                      template:
+                        metadata:
+                          labels:
+                            app: helloservice
+                        spec:
+                          containers:
+                          - name: helloservice
+                            image: ratneshpuskar/${env.JOB_NAME.toLowerCase()}:${env.BUILD_NUMBER}
+                            ports:
+                            - containerPort: 5000
+                    """
                     writeFile file: 'deployment.yaml', text: deploymentYaml
+
+                    def serviceYaml = """
+                    apiVersion: v1
+                    kind: Service
+                    metadata:
+                      name: helloservice-service
+                    spec:
+                      selector:
+                        app: helloservice
+                      ports:
+                        - protocol: TCP
+                          port: 80
+                          targetPort: 5000
+                    """
                     writeFile file: 'service.yaml', text: serviceYaml
 
-                    withEnv(['KUBECONFIG=${env.kubernetesConfig}']) {
-                        sh 'kubectl apply -f deployment.yaml'
-                        sh 'kubectl apply -f service.yaml'
-                    }
+                    sh 'kubectl apply -f deployment.yaml'
+                    sh 'kubectl apply -f service.yaml'
                 }
             }
         }
