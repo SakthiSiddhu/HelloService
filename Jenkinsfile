@@ -82,7 +82,7 @@ spec:
                  ssh -i /var/test.pem -o StrictHostKeyChecking=no ec2-user@3.6.87.166 "kubectl apply -f -" < deployment.yaml
                  ssh -i /var/test.pem -o StrictHostKeyChecking=no ec2-user@3.6.87.166 "kubectl apply -f -" < service.yaml
                  ssh -i /var/test.pem -o StrictHostKeyChecking=no ec2-user@3.6.87.166 "kubectl port-forward --address 0.0.0.0 service/helloservice-service 5000:80 &"
-
+                 exit
                  """
                 }
             }
