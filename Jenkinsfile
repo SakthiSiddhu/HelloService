@@ -1,94 +1,93 @@
 pipeline {
     agent any
-    tools { maven 'Maven' }
+
     environment {
-        KUBECONFIG = '/home/ec2-user/.kube/config'
+        KUBECONFIG = "/home/ec2-user/.kube/config"
     }
+
+    tools {
+        maven 'Maven'
+    }
+
     stages {
-        stage('Checkout') {
+        stage('Checkout Code') {
             steps {
-                git branch: 'main', url: 'https://github.com/DatlaBharath/HelloService'
+                git url: 'https://github.com/DatlaBharath/HelloService', branch: 'main'
             }
         }
-        stage('Build with Maven') {
+        
+        stage('Build Maven Project') {
             steps {
                 sh 'mvn clean install -DskipTests'
             }
         }
+        
         stage('Build Docker Image') {
             steps {
                 script {
-                    def projectName = 'helloservice'
-                    def dockerTag = "latest"
-                    def imageName = "ratneshpuskar/${projectName.toLowerCase()}:${dockerTag}"
-                    
-                    sh "docker build -t ${imageName} ."
+                    def dockerTag = "v1.0.0"
+                    def project = "helloservice"
+                    sh """
+                        docker build -t ratneshpuskar/${project.toLowerCase()}:${dockerTag} .
+                    """
                 }
             }
         }
-        stage('Push Docker Image') {
+        
+        stage('Docker Login & Push Image') {
             steps {
-                withCredentials([usernamePassword(credentialsId: 'dockerhubpwd', usernameVariable: 'USERNAME', passwordVariable: 'PASSWORD')]) {
-                    script {
-                        def projectName = 'helloservice'
-                        def dockerTag = "latest"
-                        def imageName = "ratneshpuskar/${projectName.toLowerCase()}:${dockerTag}"
-                        
-                        sh "echo $PASSWORD | docker login -u $USERNAME --password-stdin"
-                        sh "docker push ${imageName}"
-                    }
+                withCredentials([usernamePassword(credentialsId: 'dockerhub_credentials', passwordVariable: 'PASS', usernameVariable: 'USER')]) {
+                    sh """
+                        echo "$PASS" | docker login -u "$USER" --password-stdin
+                        docker push ratneshpuskar/helloservice:v1.0.0
+                    """
                 }
             }
         }
+        
         stage('Deploy to Kubernetes') {
             steps {
                 script {
-                    def projectName = 'helloservice'
-                    def dockerTag = "latest"
-                    def imageName = "ratneshpuskar/${projectName.toLowerCase()}:${dockerTag}"
-                    
-                    sh """
-                    cat <<EOF > deployment.yaml
+                    writeFile file: 'deployment.yaml', text: """
                     apiVersion: apps/v1
                     kind: Deployment
                     metadata:
-                      name: ${projectName}-deployment
+                      name: helloservice
+                      labels:
+                        app: helloservice
                     spec:
                       replicas: 1
                       selector:
                         matchLabels:
-                          app: ${projectName}
+                          app: helloservice
                       template:
                         metadata:
                           labels:
-                            app: ${projectName}
+                            app: helloservice
                         spec:
                           containers:
-                          - name: ${projectName}
-                            image: ${imageName}
+                          - name: helloservice
+                            image: ratneshpuskar/helloservice:v1.0.0
                             ports:
                             - containerPort: 5000
-                    EOF
                     """
-                    
-                    sh """
-                    cat <<EOF > service.yaml
+
+                    writeFile file: 'service.yaml', text: """
                     apiVersion: v1
                     kind: Service
                     metadata:
-                      name: ${projectName}-service
+                      name: helloservice
                     spec:
-                      selector:
-                        app: ${projectName}
+                      type: LoadBalancer
                       ports:
-                      - protocol: TCP
-                        port: 5000
+                      - port: 5000
                         targetPort: 5000
-                    EOF
+                      selector:
+                        app: helloservice
                     """
-                    
-                    sh "kubectl apply -f deployment.yaml"
-                    sh "kubectl apply -f service.yaml"
+
+                    sh 'kubectl apply -f deployment.yaml'
+                    sh 'kubectl apply -f service.yaml'
                 }
             }
         }
