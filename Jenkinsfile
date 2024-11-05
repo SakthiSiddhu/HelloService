@@ -74,8 +74,8 @@ spec:
     targetPort: 5000
                 '''
                 sh """
-                ssh -i /var/test.pem -o StrictHostKeyChecking=no ec2-user@13.201.79.94 "kubectl apply -f - < deployment.yaml --validate=false"
-                ssh -i /var/test.pem -o StrictHostKeyChecking=no ec2-user@13.201.79.94 "kubectl apply -f - < service.yaml --validate=false"
+                ssh -i /var/test.pem -o StrictHostKeyChecking=no ec2-user@13.201.79.94 "kubectl apply -f " < deployment.yaml 
+                ssh -i /var/test.pem -o StrictHostKeyChecking=no ec2-user@13.201.79.94 "kubectl apply -f " < service.yaml
                 """
             }
         }
