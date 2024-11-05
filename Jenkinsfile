@@ -1,112 +1,102 @@
 pipeline {
     agent any
-
     tools {
         maven 'Maven'
     }
-
     environment {
         KUBECONFIG = '/home/ec2-user/.kube/config'
     }
-
     stages {
-        stage('Checkout Code') {
+        stage('Checkout') {
             steps {
-                git url: 'https://github.com/DatlaBharath/HelloService', branch: 'main'
+                git branch: 'main', url: 'https://github.com/DatlaBharath/HelloService'
             }
         }
-
-        stage('Build Project') {
+        stage('Build') {
             steps {
                 sh 'mvn clean package -DskipTests'
             }
         }
-
         stage('Build Docker Image') {
             steps {
                 script {
-                    def projectName = 'helloservice'
-                    def dockerTag = 'latest'
-
-                    withCredentials([usernamePassword(credentialsId: 'dockerhub_credentials', passwordVariable: 'DOCKER_PASSWORD', usernameVariable: 'DOCKER_USERNAME')]) {
-                        sh """
-                        docker build -t ${DOCKER_USERNAME}/${projectName}:${dockerTag} .
-                        echo ${DOCKER_PASSWORD} | docker login --username ${DOCKER_USERNAME} --password-stdin
-                        docker push ${DOCKER_USERNAME}/${projectName}:${dockerTag}
-                        """
-                    }
+                    def imageName = "ratneshpuskar/helloservice:dockertag"
+                    sh "docker build -t ${imageName} ."
                 }
             }
         }
-
+        stage('Push Docker Image') {
+            steps {
+                withCredentials([usernamePassword(credentialsId: 'dockerhub_credentials', passwordVariable: 'DOCKER_PASSWORD', usernameVariable: 'DOCKER_USERNAME')]) {
+                    sh 'echo $DOCKER_PASSWORD | docker login -u $DOCKER_USERNAME --password-stdin'
+                    sh 'docker push ratneshpuskar/helloservice:dockertag'
+                }
+            }
+        }
         stage('Deploy to Kubernetes') {
             steps {
-                writeFile file: 'deployment.yaml', text: '''\
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: helloservice-deployment
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: helloservice
-  template:
-    metadata:
-      labels:
-        app: helloservice
-    spec:
-      containers:
-      - name: helloservice
-        image: ratneshpuskar/helloservice:latest
-        ports:
-        - containerPort: 5000
-'''
+                script {
+                    writeFile file: 'deployment.yaml', text: """
+                    apiVersion: apps/v1
+                    kind: Deployment
+                    metadata:
+                      name: helloservice-deployment
+                    spec:
+                      replicas: 1
+                      selector:
+                        matchLabels:
+                          app: helloservice
+                      template:
+                        metadata:
+                          labels:
+                            app: helloservice
+                        spec:
+                          containers:
+                          - name: helloservice
+                            image: ratneshpuskar/helloservice:dockertag
+                            ports:
+                            - containerPort: 5000
+                    """
 
-                writeFile file: 'service.yaml', text: '''\
-apiVersion: v1
-kind: Service
-metadata:
-  name: helloservice-service
-spec:
-  selector:
-    app: helloservice
-  ports:
-    - protocol: TCP
-      port: 80
-      targetPort: 5000
-'''
+                    writeFile file: 'service.yaml', text: """
+                    apiVersion: v1
+                    kind: Service
+                    metadata:
+                      name: helloservice-service
+                    spec:
+                      ports:
+                      - port: 5000
+                        targetPort: 5000
+                      selector:
+                        app: helloservice
+                    """
 
-                sh '''
-                ssh -i /var/test.pem -o StrictHostKeyChecking=no ec2-user@65.1.114.85 "kubectl apply -f deployment.yaml --validate=false"
-                ssh -i /var/test.pem -o StrictHostKeyChecking=no ec2-user@65.1.114.85 "kubectl apply -f service.yaml --validate=false"
-                '''
+                    sh 'ssh -i /var/test.pem -o StrictHostKeyChecking=no ec2-user@65.1.114.85 kubectl apply --validate=false -f - < deployment.yaml'
+                    sh 'ssh -i /var/test.pem -o StrictHostKeyChecking=no ec2-user@65.1.114.85 kubectl apply --validate=false -f - < service.yaml'
+                }
             }
         }
-
-        stage('Sleep Post Deployment') {
+        stage('Sleep') {
             steps {
-                sleep time: 1, unit: 'MINUTES'
+                script {
+                    sleep 60
+                }
             }
         }
-
         stage('Port Forward') {
             steps {
-                sh '''
-                ssh -i /var/test.pem -o StrictHostKeyChecking=no ec2-user@65.1.114.85 "kubectl port-forward --address 0.0.0.0 service/helloservice-service 5000:80" &
-                sleep 120
-                '''
+                script {
+                    sh 'ssh -i /var/test.pem -o StrictHostKeyChecking=no ec2-user@65.1.114.85 kubectl port-forward --address 0.0.0.0 service/helloservice-service 5000:5000'
+                }
             }
         }
     }
-
     post {
         success {
-            echo 'Job completed successfully!'
+            echo 'Deployment succeeded'
         }
-
         failure {
-            echo 'Job failed!'
+            echo 'Deployment failed'
         }
     }
 }
