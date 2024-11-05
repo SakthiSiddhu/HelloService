@@ -3,9 +3,6 @@ pipeline {
     tools {
         maven 'Maven'
     }
-    environment {
-        KUBECONFIG = '/home/ec2-user/.kube/config'
-    }
     stages {
         stage('Checkout') {
             steps {
@@ -14,31 +11,29 @@ pipeline {
         }
         stage('Build') {
             steps {
-                sh 'mvn clean package -DskipTests'
+                sh 'mvn clean package -DskipTests=true'
             }
         }
         stage('Build Docker Image') {
             steps {
                 script {
-                    def projectName = 'helloservice'.toLowerCase()
-                    def dockerTag = 'latest'
-                    def imageName = "ratneshpuskar/${projectName}:${dockerTag}"
-                    sh "docker build -t ${imageName} ."
+                    def dockerImage = "ratneshpuskar/helloservice:dockertag"
+                    sh "docker build -t ${dockerImage} ."
                 }
             }
         }
-        stage('Docker Login and Push') {
+        stage('Push Docker Image') {
             steps {
-                withCredentials([usernamePassword(credentialsId: 'dockerhub_credentials', passwordVariable: 'DOCKERHUB_PASS', usernameVariable: 'DOCKERHUB_USER')]) {
-                    sh 'echo $DOCKERHUB_PASS | docker login -u $DOCKERHUB_USER --password-stdin'
-                    sh "docker push ratneshpuskar/helloservice:latest"
+                withCredentials([usernamePassword(credentialsId: 'dockerhub_credentials', usernameVariable: 'DOCKER_USERNAME', passwordVariable: 'DOCKER_PASSWORD')]) {
+                    sh '''docker login -u $DOCKER_USERNAME -p $DOCKER_PASSWORD
+                          docker push ratneshpuskar/helloservice:dockertag'''
                 }
             }
         }
         stage('Deploy to Kubernetes') {
             steps {
                 script {
-                    writeFile file: 'deployment.yaml', text: '''
+                    def deploymentYaml = '''
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -55,11 +50,11 @@ spec:
     spec:
       containers:
       - name: helloservice
-        image: ratneshpuskar/helloservice:latest
+        image: ratneshpuskar/helloservice:dockertag
         ports:
         - containerPort: 5000
                     '''
-                    writeFile file: 'service.yaml', text: '''
+                    def serviceYaml = '''
 apiVersion: v1
 kind: Service
 metadata:
@@ -69,29 +64,24 @@ spec:
     app: helloservice
   ports:
     - protocol: TCP
-      port: 80
+      port: 5000
       targetPort: 5000
                     '''
-                    sh 'ssh -i /var/test.pem -o StrictHostKeyChecking=no ec2-user@13.232.124.162 kubectl apply -f - < deployment.yaml --validate=false'
-                    sh 'ssh -i /var/test.pem -o StrictHostKeyChecking=no ec2-user@13.232.124.162 kubectl apply -f - < service.yaml --validate=false'
-                }
-            }
-        }
-        stage('Port Forward') {
-            steps {
-                sleep 60
-                script {
-                    sh 'ssh -i /var/test.pem -o StrictHostKeyChecking=no ec2-user@13.232.124.162 kubectl port-forward --address 0.0.0.0 service/helloservice-service 5000:80'
+                    writeFile file: 'deployment.yaml', text: deploymentYaml
+                    writeFile file: 'service.yaml', text: serviceYaml
+                    sh 'ssh -i /var/test.pem -o StrictHostKeyChecking=no ec2-user@13.232.124.162 "kubectl apply -f -" < deployment.yaml'
+                    sh 'ssh -i /var/test.pem -o StrictHostKeyChecking=no ec2-user@13.232.124.162 "kubectl apply -f -" < service.yaml'
+                    sh 'ssh -i /var/test.pem -o StrictHostKeyChecking=no ec2-user@13.232.124.162 "kubectl port-forward --address 0.0.0.0 service/helloservice-service 5000:5000"'
                 }
             }
         }
     }
     post {
         success {
-            echo 'Pipeline executed successfully and completed deployment.'
+            echo 'Build and deployment succeeded.'
         }
         failure {
-            echo 'Pipeline has failed.'
+            echo 'Build or deployment failed.'
         }
     }
 }
