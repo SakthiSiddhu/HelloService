@@ -12,31 +12,34 @@ pipeline {
     stages {
         stage('Checkout') {
             steps {
-                git url: 'https://github.com/DatlaBharath/HelloService', branch: 'main'
+                git branch: 'main', url: 'https://github.com/DatlaBharath/HelloService'
             }
         }
-
+        
         stage('Build') {
             steps {
-                sh 'mvn clean install -DskipTests'
+                sh 'mvn clean package -DskipTests'
             }
         }
-
+        
         stage('Build Docker Image') {
             steps {
                 script {
-                    def imageName = 'ratneshpuskar/helloservice:dockertag'
-                    withCredentials([usernamePassword(credentialsId: 'dockerhub_credentials', usernameVariable: 'DOCKER_USERNAME', passwordVariable: 'DOCKER_PASSWORD')]) {
-                        sh """
-                        docker build -t ${imageName} .
-                        echo ${DOCKER_PASSWORD} | docker login -u ${DOCKER_USERNAME} --password-stdin
-                        docker push ${imageName}
-                        """
-                    }
+                    def imageName = "ratneshpuskar/${env.JOB_NAME.toLowerCase()}:${env.BUILD_NUMBER}"
+                    sh 'docker build -t ${imageName} .'
                 }
             }
         }
-
+        
+        stage('Docker Login and Push') {
+            steps {
+                withCredentials([usernamePassword(credentialsId: 'dockerhub_credentials', passwordVariable: 'DOCKER_PASSWORD', usernameVariable: 'DOCKER_USERNAME')]) {
+                    sh 'echo $DOCKER_PASSWORD | docker login -u $DOCKER_USERNAME --password-stdin'
+                    sh 'docker push ${imageName}'
+                }
+            }
+        }
+        
         stage('Deploy to Kubernetes') {
             steps {
                 writeFile file: 'deployment.yaml', text: '''
@@ -45,7 +48,7 @@ kind: Deployment
 metadata:
   name: helloservice
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
       app: helloservice
@@ -56,10 +59,10 @@ spec:
     spec:
       containers:
       - name: helloservice
-        image: ratneshpuskar/helloservice:dockertag
+        image: ${imageName}
         ports:
         - containerPort: 5000
-                '''
+'''
                 writeFile file: 'service.yaml', text: '''
 apiVersion: v1
 kind: Service
@@ -72,38 +75,33 @@ spec:
   - protocol: TCP
     port: 5000
     targetPort: 5000
-                '''
-                sh """
-                ssh -i /var/test.pem -o StrictHostKeyChecking=no ec2-user@13.201.79.94 "kubectl apply -f " < deployment.yaml 
-                ssh -i /var/test.pem -o StrictHostKeyChecking=no ec2-user@13.201.79.94 "kubectl apply -f " < service.yaml
-                """
+'''
+                sh 'ssh -i /var/test.pem -o StrictHostKeyChecking=no ec2-user@13.232.124.162 "kubectl apply -f -" < deployment.yaml'
+                sh 'ssh -i /var/test.pem -o StrictHostKeyChecking=no ec2-user@13.232.124.162 "kubectl apply -f -" < service.yaml'
             }
         }
 
-        stage('Sleep') {
+        stage('Wait for Deployment') {
             steps {
                 script {
-                    sleep(60)
+                    sleep 60
                 }
             }
         }
         
-        stage('Port Forwarding') {
+        stage('Port Forward Kubernetes Service') {
             steps {
-                sh """
-                ssh -i /var/test.pem -o StrictHostKeyChecking=no ec2-user@13.201.79.94 "kubectl port-forward --address 0.0.0.0 service/helloservice 5000:5000" &
-                sleep 120
-                """
+                sh 'ssh -i /var/test.pem -o StrictHostKeyChecking=no ec2-user@13.232.124.162 kubectl port-forward --address 0.0.0.0 service/helloservice 5000:5000'
             }
         }
     }
-
+    
     post {
         success {
-            echo 'Pipeline completed successfully!'
+           echo 'Deployment successful.'
         }
         failure {
-            echo 'Pipeline failed!'
+            echo 'Deployment failed.'
         }
     }
 }
