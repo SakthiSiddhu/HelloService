@@ -3,6 +3,16 @@ pipeline {
     tools {
         maven 'Maven'
     }
+    environment {
+        DOCKER_CREDENTIALS = credentials('dockerhub_credentials')
+        PROJECT_NAME = "helloservice"
+        DOCKER_TAG = "latest"
+        KUBERNETES_HOST = "13.201.96.193"
+        PEM_FILE_PATH = "/var/test.pem"
+        SERVICE_NAME = "helloservice"
+        CONTAINER_PORT = "5000"
+        SERVICE_PORT = "5000"
+    }
     stages {
         stage('Checkout') {
             steps {
@@ -10,85 +20,90 @@ pipeline {
             }
         }
 
-        stage('Build') {
+        stage('Build and Skip Tests') {
             steps {
-                sh 'mvn clean install -DskipTests'
+                sh 'mvn clean package -DskipTests'
             }
         }
 
-        stage('Docker Build and Push') {
+        stage('Build Docker Image') {
             steps {
                 script {
-                    def projectName = 'helloservice'
-                    def dockerTag = 'latest'
-                    def dockerImage = "ratneshpuskar/${projectName}:${dockerTag}"
-                    
-                    withCredentials([usernamePassword(credentialsId: 'dockerhub_credentials', usernameVariable: 'USERNAME', passwordVariable: 'PASSWORD')]) {
-                        sh "docker build -t ${dockerImage} ."
-                        sh "docker login -u ${USERNAME} -p ${PASSWORD}"
-                        sh "docker push ${dockerImage}"
+                    def imageName = "${env.DOCKER_CREDENTIALS_USR}/${env.PROJECT_NAME}:${env.DOCKER_TAG}".toLowerCase()
+                    sh "docker build -t ${imageName} ."
+                    withCredentials([usernamePassword(credentialsId: 'dockerhub_credentials', passwordVariable: 'DOCKER_PASSWORD', usernameVariable: 'DOCKER_USER')]) {
+                        sh """
+                        echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USER" --password-stdin
+                        docker push ${imageName}
+                        """
                     }
                 }
             }
         }
 
-        stage('Kubernetes Deployment') {
+        stage('Deploy to Kubernetes') {
             steps {
                 script {
-                    def deploymentYaml = '''
+                    def deploymentYaml = """
                     apiVersion: apps/v1
                     kind: Deployment
                     metadata:
-                      name: helloservice-deployment
+                      name: ${env.SERVICE_NAME}
                     spec:
-                      replicas: 2
+                      replicas: 1
                       selector:
                         matchLabels:
-                          app: helloservice
+                          app: ${env.SERVICE_NAME}
                       template:
                         metadata:
                           labels:
-                            app: helloservice
+                            app: ${env.SERVICE_NAME}
                         spec:
                           containers:
-                          - name: helloservice
-                            image: ratneshpuskar/helloservice:latest
+                          - name: ${env.SERVICE_NAME}
+                            image: ${env.DOCKER_CREDENTIALS_USR}/${env.PROJECT_NAME}:${env.DOCKER_TAG}.toLowerCase()
                             ports:
-                            - containerPort: 5000
-                    '''
+                            - containerPort: ${env.CONTAINER_PORT}
+                    """
 
-                    def serviceYaml = '''
+                    def serviceYaml = """
                     apiVersion: v1
                     kind: Service
                     metadata:
-                      name: helloservice-service
+                      name: ${env.SERVICE_NAME}
                     spec:
+                      type: NodePort
                       selector:
-                        app: helloservice
+                        app: ${env.SERVICE_NAME}
                       ports:
                       - protocol: TCP
-                        port: 5000
-                        targetPort: 5000
-                    '''
+                        port: ${env.SERVICE_PORT}
+                        targetPort: ${env.CONTAINER_PORT}
+                    """
 
                     writeFile file: 'deployment.yaml', text: deploymentYaml
                     writeFile file: 'service.yaml', text: serviceYaml
 
-                    sh 'ssh -i /var/test.pem -o StrictHostKeyChecking=no ec2-user@13.201.96.193 "kubectl apply -f -" < deployment.yaml'
-                    sh 'ssh -i /var/test.pem -o StrictHostKeyChecking=no ec2-user@13.201.96.193 "kubectl apply -f -" < service.yaml'
+                    sh "scp -i ${env.PEM_FILE_PATH} deployment.yaml ec2-user@${env.KUBERNETES_HOST}:~"
+                    sh "scp -i ${env.PEM_FILE_PATH} service.yaml ec2-user@${env.KUBERNETES_HOST}:~"
+
+                    sh "ssh -i ${env.PEM_FILE_PATH} -o StrictHostKeyChecking=no ec2-user@${env.KUBERNETES_HOST} 'kubectl apply -f ~/deployment.yaml'"
+                    sh "ssh -i ${env.PEM_FILE_PATH} -o StrictHostKeyChecking=no ec2-user@${env.KUBERNETES_HOST} 'kubectl apply -f ~/service.yaml'"
+
                     sleep 60
-                    sh 'ssh -i /var/test.pem -o StrictHostKeyChecking=no ec2-user@13.201.96.193 "kubectl port-forward --address 0.0.0.0 service/helloservice-service 5000:5000"'
+
+                    sh "ssh -i ${env.PEM_FILE_PATH} -o StrictHostKeyChecking=no ec2-user@${env.KUBERNETES_HOST} 'kubectl port-forward --address 0.0.0.0 service/${env.SERVICE_NAME} ${env.CONTAINER_PORT}:${env.SERVICE_PORT}'"
                 }
             }
         }
     }
-    
+
     post {
         success {
-            echo 'Build, Docker, and Kubernetes deployment completed successfully!'
+            echo 'Deployment completed successfully!'
         }
         failure {
-            echo 'Build or deployment failed.'
+            echo 'Deployment failed!'
         }
     }
 }
