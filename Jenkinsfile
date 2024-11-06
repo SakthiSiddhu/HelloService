@@ -1,105 +1,104 @@
 pipeline {
     agent any
+    
     tools {
-        maven "Maven"
+        maven 'Maven'
     }
+    
     environment {
-        REPO_URL = 'https://github.com/DatlaBharath/HelloService'
-        BRANCH = 'main'
         DOCKER_CREDENTIALS_ID = 'dockerhub_credentials'
-        DOCKER_REPO = 'ratneshpuskar'
-        DOCKER_TAG = 'dockertag'
-        K8S_USER = 'ec2-user'
-        K8S_HOST = '13.235.128.206'
-        K8S_KEY = '/var/test.pem'
-        DOCKER_IMAGE = "${DOCKER_REPO}/helloservice:${DOCKER_TAG}"
-        SERVICE_NAME = 'service-name'
-        SERVICE_PORT = 5000
-        CONTAINER_PORT = 5000
+        DOCKER_IMAGE_NAME = 'ratneshpuskar/helloservice'
+        DOCKER_TAG = 'v1.0'
+        DEPLOYMENT_YAML = 'deployment.yaml'
+        SERVICE_YAML = 'service.yaml'
+        PRIVATE_KEY_PATH = '/var/test.pem'
+        REMOTE_USER = 'ec2-user'
+        REMOTE_HOST = '13.235.128.206'
     }
+    
     stages {
         stage('Checkout') {
             steps {
-                checkout([$class: 'GitSCM', branches: [[name: BRANCH]],
-                          userRemoteConfigs: [[url: REPO_URL]]])
+                git branch: 'main', url: 'https://github.com/DatlaBharath/HelloService'
             }
         }
+        
         stage('Build with Maven') {
             steps {
                 sh 'mvn clean package -DskipTests'
             }
         }
+        
         stage('Build Docker Image') {
             steps {
                 script {
-                    docker.build(DOCKER_IMAGE)
+                    docker.build("${env.DOCKER_IMAGE_NAME}:${env.DOCKER_TAG}")
                 }
             }
         }
-        stage('Push Docker Image') {
+        
+        stage('Docker Login and Push') {
             steps {
-                withCredentials([usernamePassword(credentialsId: DOCKER_CREDENTIALS_ID, passwordVariable: 'DOCKER_PASSWORD', usernameVariable: 'DOCKER_USERNAME')]) {
-                    sh "echo $DOCKER_PASSWORD | docker login -u $DOCKER_USERNAME --password-stdin"
-                    sh "docker push ${DOCKER_IMAGE}"
+                withCredentials([usernamePassword(credentialsId: "${env.DOCKER_CREDENTIALS_ID}", usernameVariable: 'USERNAME', passwordVariable: 'PASSWORD')]) {
+                    sh 'docker login -u $USERNAME -p $PASSWORD'
+                    sh 'docker push ${env.DOCKER_IMAGE_NAME}:${env.DOCKER_TAG}'
                 }
             }
         }
+        
         stage('Deploy to Kubernetes') {
             steps {
-                script {
-                    def deployment = """
+                writeFile file: "${env.DEPLOYMENT_YAML}", text: """
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: ${SERVICE_NAME}-deployment
+  name: helloservice-deployment
 spec:
   replicas: 1
-  selector:
-    matchLabels:
-      app: ${SERVICE_NAME}
   template:
     metadata:
       labels:
-        app: ${SERVICE_NAME}
+        app: helloservice
     spec:
       containers:
-      - name: ${SERVICE_NAME}
-        image: ${DOCKER_IMAGE}
+      - name: helloservice
+        image: ${env.DOCKER_IMAGE_NAME}:${env.DOCKER_TAG}
         ports:
-        - containerPort: ${CONTAINER_PORT}
-"""
-                    def service = """
+        - containerPort: 5000
+  selector:
+    matchLabels:
+      app: helloservice
+                """
+                
+                writeFile file: "${env.SERVICE_YAML}", text: """
 apiVersion: v1
 kind: Service
 metadata:
-  name: ${SERVICE_NAME}
+  name: helloservice-service
 spec:
   selector:
-    app: ${SERVICE_NAME}
+    app: helloservice
   ports:
     - protocol: TCP
-      port: ${SERVICE_PORT}
-      targetPort: ${CONTAINER_PORT}
-"""
-                    sh """
-echo "${deployment}" > deployment.yaml
-echo "${service}" > service.yaml
-ssh -i ${K8S_KEY} -o StrictHostKeyChecking=no ${K8S_USER}@${K8S_HOST} "kubectl apply -f -" < deployment.yaml
-ssh -i ${K8S_KEY} -o StrictHostKeyChecking=no ${K8S_USER}@${K8S_HOST} "kubectl apply -f -" < service.yaml
-sleep 60
-ssh -i ${K8S_KEY} -o StrictHostKeyChecking=no ${K8S_USER}@${K8S_HOST} "sudo lsof -t -i :${SERVICE_PORT} | xargs -r sudo kill -9" || true
-ssh -i ${K8S_KEY} -o StrictHostKeyChecking=no ${K8S_USER}@${K8S_HOST} "kubectl port-forward --address 0.0.0.0 service/${SERVICE_NAME} ${CONTAINER_PORT}:${SERVICE_PORT}"
-"""
-                }
+      port: 5000
+      targetPort: 5000
+                """
+                
+                sh 'ssh -i ${env.PRIVATE_KEY_PATH} -o StrictHostKeyChecking=no ${env.REMOTE_USER}@${env.REMOTE_HOST} "kubectl apply -f -" < ${env.DEPLOYMENT_YAML}'
+                sh 'ssh -i ${env.PRIVATE_KEY_PATH} -o StrictHostKeyChecking=no ${env.REMOTE_USER}@${env.REMOTE_HOST} "kubectl apply -f -" < ${env.SERVICE_YAML}'
+                sleep 60
+                sh 'ssh -i ${env.PRIVATE_KEY_PATH} -o StrictHostKeyChecking=no ${env.REMOTE_USER}@${env.REMOTE_HOST} "sudo lsof -t -i :5000 | xargs -r sudo kill -9" || true'
+                sh 'ssh -i ${env.PRIVATE_KEY_PATH} -o StrictHostKeyChecking=no ${env.REMOTE_USER}@${env.REMOTE_HOST} "kubectl port-forward --address 0.0.0.0 service/helloservice-service 5000:5000"'
             }
         }
     }
+    
     post {
         success {
-            echo 'Pipeline executed successfully.'
+            echo 'Deployment was successful!'
         }
         failure {
-            echo 'Pipeline failed to execute.'
+            echo 'Deployment failed!'
         }
     }
 }
