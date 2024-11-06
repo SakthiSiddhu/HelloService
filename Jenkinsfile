@@ -70,7 +70,7 @@ spec:
                     sh 'ssh -i /var/test.pem -o StrictHostKeyChecking=no ec2-user@52.66.182.58 "kubectl apply -f /home/ec2-user/deployment.yaml"'
                     sh 'ssh -i /var/test.pem -o StrictHostKeyChecking=no ec2-user@52.66.182.58 "kubectl apply -f /home/ec2-user/service.yaml"'
                     sleep 60
-                    sh 'ssh -i /var/test.pem -o StrictHostKeyChecking=no ec2-user@52.66.182.58 "kubectl port-forward --address 0.0.0.0 service/helloservice-service 5000:5000 &"'
+                    sh 'ssh -i /var/test.pem -o StrictHostKeyChecking=no ec2-user@52.66.182.58 "kubectl port-forward --address 0.0.0.0 service/helloservice-service 5000:5000"'
                     
                 }
             }
