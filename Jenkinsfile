@@ -1,112 +1,100 @@
+```
 pipeline {
     agent any
-
+    
     tools {
         maven 'Maven'
     }
-
-    environment {
-        GIT_REPO = 'https://github.com/DatlaBharath/HelloService'
-        BRANCH = 'main'
-        DOCKER_IMAGE = 'ratneshpuskar/helloservice'
-        DOCKER_CREDENTIALS_ID = 'dockerhub_credentials'
-        SSH_KEY_PATH = '/var/test.pem'
-        SSH_USER = 'ec2-user'
-        SSH_HOST = '13.235.128.206'
-        CONTAINER_PORT = '5000'
-        SERVICE_NAME = 'helloservice'
-    }
-
+    
     stages {
         stage('Checkout') {
             steps {
-                git branch: env.BRANCH, url: env.GIT_REPO
+                git branch: 'main', url: 'https://github.com/DatlaBharath/HelloService'
             }
         }
-
+        
         stage('Build') {
             steps {
                 sh 'mvn clean package -DskipTests'
             }
         }
-
-        stage('Build Docker Image') {
+        
+        stage('Docker Build & Push') {
             steps {
                 script {
-                    def tag = 'latest'
-                    sh "docker build -t ${env.DOCKER_IMAGE}:${tag} ."
+                    def imageName = 'ratneshpuskar/hello-service'
+                    def dockerTag = "${imageName}:${env.BUILD_NUMBER}"
+                    
+                    withCredentials([usernamePassword(credentialsId: 'dockerhub_credentials', passwordVariable: 'DOCKER_PASS', usernameVariable: 'DOCKER_USER')]) {
+                        sh "docker build -t ${dockerTag} ."
+                        sh "echo ${DOCKER_PASS} | docker login -u ${DOCKER_USER} --password-stdin"
+                        sh "docker push ${dockerTag}"
+                    }
                 }
             }
         }
-
-        stage('Push Docker Image') {
-            steps {
-                withCredentials([usernamePassword(credentialsId: env.DOCKER_CREDENTIALS_ID, passwordVariable: 'DOCKER_PASSWORD', usernameVariable: 'DOCKER_USERNAME')]) {
-                    sh """
-                        echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
-                        docker push ${env.DOCKER_IMAGE}:latest
-                    """
-                }
-            }
-        }
-
+        
         stage('Deploy to Kubernetes') {
             steps {
                 script {
-                    writeFile file: 'deployment.yaml', text: """
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: ${env.SERVICE_NAME}
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: ${env.SERVICE_NAME}
-  template:
-    metadata:
-      labels:
-        app: ${env.SERVICE_NAME}
-    spec:
-      containers:
-      - name: ${env.SERVICE_NAME}
-        image: ${env.DOCKER_IMAGE}:latest
-        ports:
-        - containerPort: ${env.CONTAINER_PORT}
-"""
-
-                    writeFile file: 'service.yaml', text: """
-apiVersion: v1
-kind: Service
-metadata:
-  name: ${env.SERVICE_NAME}
-spec:
-  selector:
-    app: ${env.SERVICE_NAME}
-  ports:
-    - protocol: TCP
-      port: ${env.CONTAINER_PORT}
-      targetPort: ${env.CONTAINER_PORT}
-"""
-
-                    sh """
-                        ssh -i ${env.SSH_KEY_PATH} -o StrictHostKeyChecking=no ${env.SSH_USER}@${env.SSH_HOST} "kubectl apply -f -" < deployment.yaml
-                        ssh -i ${env.SSH_KEY_PATH} -o StrictHostKeyChecking=no ${env.SSH_USER}@${env.SSH_HOST} "kubectl apply -f -" < service.yaml
-                        sleep 60
-                        ssh -i ${env.SSH_KEY_PATH} -o StrictHostKeyChecking=no ${env.SSH_USER}@${env.SSH_HOST} sudo kill -9 /$(sudo lsof -t -i :${env.CONTAINER_PORT})
-                        ssh -i ${env.SSH_KEY_PATH} -o StrictHostKeyChecking=no ${env.SSH_USER}@${env.SSH_HOST} "kubectl port-forward --address 0.0.0.0 service/${env.SERVICE_NAME} ${env.CONTAINER_PORT}:${env.CONTAINER_PORT}"
+                    def deployment = """
+                    apiVersion: apps/v1
+                    kind: Deployment
+                    metadata:
+                      name: hello-service-deployment
+                    spec:
+                      replicas: 1
+                      selector:
+                        matchLabels:
+                          app: hello-service
+                      template:
+                        metadata:
+                          labels:
+                            app: hello-service
+                        spec:
+                          containers:
+                          - name: hello-service
+                            image: ratneshpuskar/hello-service:${env.BUILD_NUMBER}
+                            ports:
+                            - containerPort: 5000
                     """
+                    
+                    def service = """
+                    apiVersion: v1
+                    kind: Service
+                    metadata:
+                      name: hello-service
+                    spec:
+                      selector:
+                        app: hello-service
+                      ports:
+                      - protocol: TCP
+                        port: 5000
+                        targetPort: 5000
+                    """
+                    
+                    writeFile file: 'deployment.yaml', text: deployment.trim()
+                    writeFile file: 'service.yaml', text: service.trim()
+
+                    sh '''
+                        ssh -i /var/test.pem -o StrictHostKeyChecking=no ec2-user@13.235.128.206 "kubectl apply -f -" < deployment.yaml
+                        ssh -i /var/test.pem -o StrictHostKeyChecking=no ec2-user@13.235.128.206 "kubectl apply -f -" < service.yaml
+                        sleep 60
+                        ssh -i /var/test.pem -o StrictHostKeyChecking=no ec2-user@13.235.128.206 "sudo kill -9 $(sudo lsof -t -i :5000)"
+                        ssh -i /var/test.pem -o StrictHostKeyChecking=no ec2-user@13.235.128.206 "kubectl port-forward --address 0.0.0.0 service/hello-service 5000:5000"
+                    '''
                 }
             }
         }
     }
-
+    
     post {
         success {
-            echo 'Pipeline succeeded'
+            echo 'Deployment was successful!'
         }
         failure {
-            echo 'Pipeline failed'
+            echo 'Deployment failed.'
         }
     }
 }
+```
