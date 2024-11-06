@@ -88,8 +88,7 @@ pipeline {
 
                     sh 'ssh -i /var/test.pem -o StrictHostKeyChecking=no ec2-user@13.235.128.206 "kubectl apply -f -" < deployment.yaml'
                     sh 'ssh -i /var/test.pem -o StrictHostKeyChecking=no ec2-user@13.235.128.206 "kubectl apply -f -" < service.yaml'
-                    sleep 60
-                    sh 'ssh -i /var/test.pem -o StrictHostKeyChecking=no ec2-user@13.235.128.206 "sudo kill -9 $(sudo lsof -t -i :5000)" || true'
+                    sh 'ssh -i /var/test.pem -o StrictHostKeyChecking=no ec2-user@13.235.128.206 "sudo kill -9 $(sudo lsof -t -i :5000) || true"'
                     sh 'ssh -i /var/test.pem -o StrictHostKeyChecking=no ec2-user@13.235.128.206 "kubectl port-forward --address 0.0.0.0 service/helloservice 5000:80"'
                 }
             }
