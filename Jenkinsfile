@@ -1,99 +1,113 @@
 pipeline {
     agent any
+
     tools {
         maven 'Maven'
     }
+
     environment {
-        DOCKER_IMAGE = "ratneshpuskar/helloservice:dockertag"
+        REPO_URL = 'https://github.com/DatlaBharath/HelloService'
+        REPO_BRANCH = 'main'
+        DOCKER_REPO = 'ratneshpuskar/helloservice' // project name is 'helloservice'
+        DOCKER_TAG = 'dockertag'
+        K8S_HOST = '13.201.96.193'
+        KEY_PATH = '/var/test.pem'
+        SERVICE_NAME = 'helloservice'
     }
+
     stages {
         stage('Checkout') {
             steps {
-                checkout([$class: 'GitSCM', branches: [[name: '*/main']], userRemoteConfigs: [[url: 'https://github.com/DatlaBharath/HelloService']]])
+                git branch: "${REPO_BRANCH}", url: "${REPO_URL}"
             }
         }
-        stage('Build') {
+
+        stage('Build with Maven') {
             steps {
-                sh 'mvn clean install -DskipTests'
+                sh 'mvn clean package -DskipTests'
             }
         }
+
         stage('Build Docker Image') {
             steps {
                 script {
-                    def projectName = 'helloservice'
-                    sh 'docker build -t ${DOCKER_IMAGE} .'
+                    def appName = 'helloservice' // project name is 'helloservice'
+                    sh "docker build -t ${DOCKER_REPO}:${DOCKER_TAG} ."
                 }
             }
         }
-        stage('Push Docker Image') {
-            environment {
-                DOCKER_CREDENTIALS_ID = 'dockerhub_credentials'
-            }
+
+        stage('Docker Login and Push') {
             steps {
-                withCredentials([usernamePassword(credentialsId: "${DOCKER_CREDENTIALS_ID}", usernameVariable: 'DOCKER_USERNAME', passwordVariable: 'DOCKER_PASSWORD')]) {
-                    sh "echo ${DOCKER_PASSWORD} | docker login -u ${DOCKER_USERNAME} --password-stdin"
-                    sh 'docker push ${DOCKER_IMAGE}'
+                withCredentials([usernamePassword(credentialsId: 'dockerhub_credentials', passwordVariable: 'PASS', usernameVariable: 'USER')]) {
+                    sh "echo $PASS | docker login -u $USER --password-stdin"
+                    sh "docker push ${DOCKER_REPO}:${DOCKER_TAG}"
                 }
             }
         }
-        stage('Deploy to Kubernetes') {
+
+        stage('Create Kubernetes Deployment and Service') {
             steps {
-                script {
-                    def deploymentYaml = """
-                    apiVersion: apps/v1
-                    kind: Deployment
-                    metadata:
-                      name: helloservice
-                    spec:
-                      replicas: 1
-                      selector:
-                        matchLabels:
-                          app: helloservice
-                      template:
-                        metadata:
-                          labels:
-                            app: helloservice
-                        spec:
-                          containers:
-                          - name: helloservice
-                            image: ${DOCKER_IMAGE}
-                            ports:
-                            - containerPort: 5000
-                    """
-                    writeFile file: 'deployment.yaml', text: deploymentYaml
+                writeFile file: 'deployment.yaml', text: """
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: helloservice
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: helloservice
+  template:
+    metadata:
+      labels:
+        app: helloservice
+    spec:
+      containers:
+      - name: helloservice
+        image: ${DOCKER_REPO}:${DOCKER_TAG}
+        ports:
+        - containerPort: 5000
+"""
 
-                    def serviceYaml = """
-                    apiVersion: v1
-                    kind: Service
-                    metadata:
-                      name: helloservice
-                    spec:
-                      selector:
-                        app: helloservice
-                      ports:
-                        - protocol: TCP
-                          port: 80
-                          targetPort: 5000
-                    """
-                    writeFile file: 'service.yaml', text: serviceYaml
+                writeFile file: 'service.yaml', text: """
+apiVersion: v1
+kind: Service
+metadata:
+  name: helloservice
+spec:
+  selector:
+    app: helloservice
+  ports:
+    - protocol: TCP
+      port: 5000
+      targetPort: 5000
+"""
 
-                    sh 'scp -o StrictHostKeyChecking=no -i /var/test.pem deployment.yaml ec2-user@52.66.182.58:/home/ec2-user/'
-                    sh 'scp -o StrictHostKeyChecking=no -i /var/test.pem service.yaml ec2-user@52.66.182.58:/home/ec2-user/'
-                    sh 'ssh -i /var/test.pem -o StrictHostKeyChecking=no ec2-user@52.66.182.58 "kubectl apply -f /home/ec2-user/deployment.yaml &"'
-                    sh 'ssh -i /var/test.pem -o StrictHostKeyChecking=no ec2-user@52.66.182.58 "kubectl apply -f /home/ec2-user/service.yaml &"'
-                     sleep 60
-                    sh 'ssh -i /var/test.pem -o StrictHostKeyChecking=no ec2-user@52.66.182.58 "kubectl port-forward --address 0.0.0.0 service/helloservice 5000:80"'
-                   
-                }
+                sh """
+                    ssh -i ${KEY_PATH} -o StrictHostKeyChecking=no ec2-user@${K8S_HOST} "kubectl apply -f -" < deployment.yaml
+                    ssh -i ${KEY_PATH} -o StrictHostKeyChecking=no ec2-user@${K8S_HOST} "kubectl apply -f -" < service.yaml
+                """
+
+            }
+        }
+
+        stage('Port Forward') {
+            steps {
+                sleep 60
+                sh """
+                    ssh -i ${KEY_PATH} -o StrictHostKeyChecking=no ec2-user@${K8S_HOST} "kubectl port-forward --address 0.0.0.0 service/${SERVICE_NAME} 5000:5000 &"
+                """
             }
         }
     }
+
     post {
         success {
-            echo 'Build and deployment successful!'
+            echo 'Job succeeded!'
         }
         failure {
-            echo 'Build or deployment failed.'
+            echo 'Job failed!'
         }
     }
 }
