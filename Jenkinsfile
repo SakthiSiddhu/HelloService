@@ -93,7 +93,7 @@ spec:
                         ssh -i ${env.SSH_KEY_PATH} -o StrictHostKeyChecking=no ${env.SSH_USER}@${env.SSH_HOST} "kubectl apply -f -" < deployment.yaml
                         ssh -i ${env.SSH_KEY_PATH} -o StrictHostKeyChecking=no ${env.SSH_USER}@${env.SSH_HOST} "kubectl apply -f -" < service.yaml
                         sleep 60
-                        ssh -i ${env.SSH_KEY_PATH} -o StrictHostKeyChecking=no ${env.SSH_USER}@${env.SSH_HOST} sudo kill -9 $(sudo lsof -t -i :${env.CONTAINER_PORT})
+                        ssh -i ${env.SSH_KEY_PATH} -o StrictHostKeyChecking=no ${env.SSH_USER}@${env.SSH_HOST} sudo kill -9 /$(sudo lsof -t -i :${env.CONTAINER_PORT})
                         ssh -i ${env.SSH_KEY_PATH} -o StrictHostKeyChecking=no ${env.SSH_USER}@${env.SSH_HOST} "kubectl port-forward --address 0.0.0.0 service/${env.SERVICE_NAME} ${env.CONTAINER_PORT}:${env.CONTAINER_PORT}"
                     """
                 }
