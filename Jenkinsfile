@@ -1,96 +1,95 @@
 pipeline {
     agent any
-    
+
     tools {
         maven 'Maven'
     }
-    
-    environment {
-        DOCKERHUB_CREDENTIALS = credentials('dockerhub_credentials')
-    }
-    
+
     stages {
         stage('Checkout') {
             steps {
                 git url: 'https://github.com/DatlaBharath/HelloService', branch: 'main'
             }
         }
-        
+
         stage('Build') {
             steps {
-                sh 'mvn clean package -DskipTests'
+                sh 'mvn clean install -DskipTests'
             }
         }
-        
+
         stage('Build Docker Image') {
             steps {
                 script {
-                    def dockerImage = "ratneshpuskar/helloservice:dockertag"
-                    sh "docker build -t ${dockerImage} ."
-                    sh "echo ${env.DOCKERHUB_CREDENTIALS_PSW} | docker login -u ${env.DOCKERHUB_CREDENTIALS_USR} --password-stdin"
-                    sh "docker push ${dockerImage}"
+                    def dockerImageName = "ratneshpuskar/${env.JOB_NAME.toLowerCase()}:dockertag"
+                    sh "docker build -t ${dockerImageName} ."
+                    
+                    withCredentials([usernamePassword(credentialsId: 'dockerhub_credentials', passwordVariable: 'DOCKER_HUB_PASSWORD', usernameVariable: 'DOCKER_HUB_USERNAME')]) {
+                        sh "echo ${DOCKER_HUB_PASSWORD} | docker login -u ${DOCKER_HUB_USERNAME} --password-stdin"
+                        sh "docker push ${dockerImageName}"
+                    }
                 }
             }
         }
-        
+
         stage('Deploy to Kubernetes') {
             steps {
-                writeFile(file: 'deployment.yaml', text: '''
+                script {
+                    def deploymentYaml = """
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: helloservice-deployment
+  name: hello-service-deployment
 spec:
-  replicas: 1
+  replicas: 2
   selector:
     matchLabels:
-      run: helloservice
+      app: hello-service
   template:
     metadata:
       labels:
-        run: helloservice
+        app: hello-service
     spec:
       containers:
-      - name: helloservice
-        image: ratneshpuskar/helloservice:dockertag
+      - name: hello-service-container
+        image: ratneshpuskar/${env.JOB_NAME.toLowerCase()}:dockertag
         ports:
         - containerPort: 5000
-''')
-                
-                writeFile(file: 'service.yaml', text: '''
+"""
+                    def serviceYaml = """
 apiVersion: v1
 kind: Service
 metadata:
-  name: helloservice-service
+  name: hello-service
 spec:
-  type: NodePort
   selector:
-    run: helloservice
+    app: hello-service
   ports:
-    - protocol: TCP
-      port: 5000
-      targetPort: 5000
-''')
+  - protocol: TCP
+    port: 5000
+    targetPort: 5000
+"""
+                    writeFile file: 'deployment.yaml', text: deploymentYaml
+                    writeFile file: 'service.yaml', text: serviceYaml
 
-                script {
-                    sh '''
-ssh -i /var/test.pem -o StrictHostKeyChecking=no ec2-user@52.66.179.41 "kubectl apply -f -" < deployment.yaml
-ssh -i /var/test.pem -o StrictHostKeyChecking=no ec2-user@52.66.179.41 "kubectl apply -f -" < service.yaml
-sleep 60
-ssh -i /var/test.pem -o StrictHostKeyChecking=no ec2-user@52.66.179.41 "sudo lsof -t -i :5000 | xargs -r sudo kill -9" || true
-ssh -i /var/test.pem -o StrictHostKeyChecking=no ec2-user@52.66.179.41 "kubectl port-forward --address 0.0.0.0 service/helloservice-service 5000:5000" || true
-'''
+                    sh """
+                        ssh -i /var/test.pem -o StrictHostKeyChecking=no ec2-user@52.66.179.41 "kubectl apply -f -" < deployment.yaml
+                        ssh -i /var/test.pem -o StrictHostKeyChecking=no ec2-user@52.66.179.41 "kubectl apply -f -" < service.yaml
+                        sleep 60
+                        ssh -i /var/test.pem -o StrictHostKeyChecking=no ec2-user@52.66.179.41 "sudo lsof -t -i :5000 | xargs -r sudo kill -9" || true
+                        ssh -i /var/test.pem -o StrictHostKeyChecking=no ec2-user@52.66.179.41 "kubectl port-forward --address 0.0.0.0 service/hello-service 5000:5000" || true
+                    """
                 }
             }
         }
     }
-    
+
     post {
         success {
-            echo 'Job completed successfully.'
+            echo 'Build and deployment completed successfully'
         }
         failure {
-            echo 'Job failed.'
+            echo 'Build or deployment failed'
         }
     }
 }
