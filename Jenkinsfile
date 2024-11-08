@@ -1,42 +1,62 @@
 pipeline {
     agent any
+
     tools {
         maven 'Maven'
     }
+
+    environment {
+        DOCKER_REPO = 'ratneshpuskar'
+        DOCKER_CREDENTIALS_ID = 'dockerhub_credentials'
+        DOCKER_IMAGE_TAG = "latest"
+        DOCKER_PROJECT_NAME = "helloservice"
+        DEPLOYMENT_FILE = 'deployment.yaml'
+        SERVICE_FILE = 'service.yaml'
+        EC2_USER = 'ec2-user'
+        EC2_HOST = '13.201.20.4'
+        KEY_FILE = '/var/test.pem'
+    }
+
     stages {
-        stage('Checkout Code') {
+        stage('Checkout') {
             steps {
-                git url: 'https://github.com/DatlaBharath/HelloService', branch: 'main'
+                git branch: 'main', url: 'https://github.com/DatlaBharath/HelloService'
             }
         }
-        stage('Build with Maven') {
+        
+        stage('Build') {
+            steps {
+                sh 'mvn clean package -DskipTests'
+            }
+        }
+        
+        stage('Docker Build') {
             steps {
                 script {
-                    sh 'mvn clean package -DskipTests'
+                    def projectName = 'helloservice'.toLowerCase()
+                    def imageTag = "${DOCKER_REPO}/${projectName}:${DOCKER_IMAGE_TAG}"
+                    sh "docker build -t ${imageTag} ."
                 }
             }
         }
-        stage('Build Docker Image') {
+        
+        stage('Docker Push') {
             steps {
-                script {
-                    docker.build('ratneshpuskar/helloservice:dockertag')
-                }
-            }
-        }
-        stage('Push Docker Image') {
-            steps {
-                withCredentials([usernamePassword(credentialsId: 'dockerhub_credentials', usernameVariable: 'USERNAME', passwordVariable: 'PASSWORD')]) {
+                withCredentials([usernamePassword(credentialsId: "${DOCKER_CREDENTIALS_ID}", usernameVariable: 'DOCKERHUB_USER', passwordVariable: 'DOCKERHUB_PASS')]) {
+                    sh 'echo $DOCKERHUB_PASS | docker login -u $DOCKERHUB_USER --password-stdin'
                     script {
-                        sh 'echo "$PASSWORD" | docker login -u "$USERNAME" --password-stdin'
-                        sh 'docker push ratneshpuskar/helloservice:dockertag'
+                        def projectName = 'helloservice'.toLowerCase()
+                        def imageTag = "${DOCKER_REPO}/${projectName}:${DOCKER_IMAGE_TAG}"
+                        sh "docker push ${imageTag}"
                     }
                 }
             }
         }
-        stage('Deploy to Kubernetes') {
+        
+        stage('Kubernetes Deploy') {
             steps {
                 script {
-                    writeFile file: 'deployment.yaml', text: """
+                    def deploymentFileContent = '''
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -53,11 +73,12 @@ spec:
     spec:
       containers:
       - name: helloservice
-        image: ratneshpuskar/helloservice:dockertag
+        image: ratneshpuskar/helloservice:latest
         ports:
         - containerPort: 5000
-"""
-                    writeFile file: 'service.yaml', text: """
+                    '''
+
+                    def serviceFileContent = '''
 apiVersion: v1
 kind: Service
 metadata:
@@ -69,25 +90,33 @@ spec:
     - protocol: TCP
       port: 5000
       targetPort: 5000
-  type: LoadBalancer
-"""
-                    sh """
-                    ssh -i /var/test.pem -o StrictHostKeyChecking=no ec2-user@13.233.18.108 "kubectl apply -f -" < deployment.yaml
-                    ssh -i /var/test.pem -o StrictHostKeyChecking=no ec2-user@13.233.18.108 "kubectl apply -f -" < service.yaml
+  type: NodePort
+                    '''
+                    
+                    writeFile file: 'deployment.yaml', text: deploymentFileContent
+                    writeFile file: 'service.yaml', text: serviceFileContent
+
+                    sh "scp -i ${KEY_FILE} -o StrictHostKeyChecking=no ${DEPLOYMENT_FILE} ${EC2_USER}@${EC2_HOST}:${DEPLOYMENT_FILE}"
+                    sh "scp -i ${KEY_FILE} -o StrictHostKeyChecking=no ${SERVICE_FILE} ${EC2_USER}@${EC2_HOST}:${SERVICE_FILE}"
+
+                    sh '''
+                    ssh -i ${KEY_FILE} -o StrictHostKeyChecking=no ${EC2_USER}@${EC2_HOST} "kubectl apply -f ${DEPLOYMENT_FILE}"
+                    ssh -i ${KEY_FILE} -o StrictHostKeyChecking=no ${EC2_USER}@${EC2_HOST} "kubectl apply -f ${SERVICE_FILE}"
                     sleep 60
-                    ssh -i /var/test.pem -o StrictHostKeyChecking=no ec2-user@13.233.18.108 "sudo lsof -t -i :5000 | xargs -r sudo kill -9" || true
-                    ssh -i /var/test.pem -o StrictHostKeyChecking=no ec2-user@13.233.18.108 "kubectl port-forward --address 0.0.0.0 service/helloservice-service 5000:5000" || true
-                    """
+                    ssh -i ${KEY_FILE} -o StrictHostKeyChecking=no ${EC2_USER}@${EC2_HOST} "sudo lsof -t -i :5000 | xargs -r sudo kill -9 || true"
+                    ssh -i ${KEY_FILE} -o StrictHostKeyChecking=no ${EC2_USER}@${EC2_HOST} "kubectl port-forward --address 0.0.0.0 service/helloservice-service 5000:5000 || true"
+                    '''
                 }
             }
         }
     }
+
     post {
         success {
-            echo 'Deployment successful!'
+            echo 'Deployment successful.'
         }
         failure {
-            echo 'Deployment failed!'
+            echo 'Deployment failed.'
         }
     }
 }
