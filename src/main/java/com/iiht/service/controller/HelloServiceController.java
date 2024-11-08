@@ -8,13 +8,18 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping("/rest/service")
 public class HelloServiceController {
 	
 	@GetMapping
 	public String hello() 
 	{
-		return "Sucessfull";
+		return "<h1 style="color : "blue"> Congratulations Application is Deployed </h1>";
+	}
+
+	@GetMapping("/greet")
+	public String greet() 
+	{
+		return "Good Morning, Welcome To Demo Project";
 	}
 	
 	@GetMapping("/add/{a}/{b}")
