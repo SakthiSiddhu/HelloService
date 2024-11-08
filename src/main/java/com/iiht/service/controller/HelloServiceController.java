@@ -14,7 +14,7 @@ public class HelloServiceController {
 	@GetMapping
 	public String hello() 
 	{
-		return "Connected -- server";
+		return "Sucessfull";
 	}
 	
 	@GetMapping("/add/{a}/{b}")
