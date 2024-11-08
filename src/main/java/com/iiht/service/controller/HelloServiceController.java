@@ -42,7 +42,7 @@ public class HelloServiceController {
 	           "</head>" +
 	           "<body>" +
 	           "<div class='container'>" +
-	           "<h1>Congratulations! Application is Deployed</h1>" +
+	           "<h1>Congratulations! Application is Deployed. Test Run</h1>" +
 	           "<p>Your application is up and running successfully!</p>" +
 	           "</div>" +
 	           "</body>" +
