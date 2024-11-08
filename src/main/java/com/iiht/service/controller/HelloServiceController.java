@@ -13,7 +13,7 @@ public class HelloServiceController {
 	@GetMapping
 	public String hello() 
 	{
-		return "<h1 style="color : "blue"> Congratulations Application is Deployed </h1>";
+		return "<h1> Congratulations Application is Deployed </h1>";
 	}
 
 	@GetMapping("/greet")
