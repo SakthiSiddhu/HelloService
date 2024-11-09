@@ -1,3 +1,4 @@
+
 pipeline {
     agent any
 
@@ -5,37 +6,58 @@ pipeline {
         maven 'Maven'
     }
 
+    environment {
+        DOCKERHUB_CREDENTIALS = credentials('dockerhub_credentials')
+        REPO_URL = 'https://github.com/DatlaBharath/HelloService'
+        BRANCH = 'main'
+        IMAGE_NAME = 'ratneshpuskar/helloservice'
+        CLUSTER_CREDENTIALS = '/var/test.pem'
+        CLUSTER_USER = 'ec2-user'
+        CLUSTER_HOST = '15.206.72.215'
+        K8S_PORT = '5000'
+    }
+
     stages {
         stage('Checkout') {
             steps {
-                git branch: 'main', url: 'https://github.com/DatlaBharath/HelloService'
+                git branch: "${BRANCH}", url: "${REPO_URL}"
             }
         }
+
         stage('Build') {
             steps {
-                sh 'mvn clean install -DskipTests'
+                sh "mvn clean package -DskipTests"
             }
         }
+
         stage('Build Docker Image') {
             steps {
                 script {
-                    def projectName = "helloservice"
-                    def dockerTag = "${env.BUILD_NUMBER}"
-                    def dockerImage = "ratneshpuskar/${projectName}:${dockerTag}"
+                    def imageTag = "${IMAGE_NAME}:${env.BUILD_NUMBER}"
+                    sh "docker build -t ${imageTag} ."
+                }
+            }
+        }
 
-                    withCredentials([usernamePassword(credentialsId: 'dockerhub_credentials', passwordVariable: 'DOCKER_HUB_PASSWORD', usernameVariable: 'DOCKER_HUB_USERNAME')]) {
-                        sh "docker build -t ${dockerImage} ."
-                        sh "echo ${DOCKER_HUB_PASSWORD} | docker login -u ${DOCKER_HUB_USERNAME} --password-stdin"
-                        sh "docker push ${dockerImage}"
+        stage('Push Docker Image') {
+            steps {
+                script {
+                    def imageTag = "${IMAGE_NAME}:${env.BUILD_NUMBER}"
+                    withCredentials([usernamePassword(credentialsId: '${DOCKERHUB_CREDENTIALS}', passwordVariable: 'PASSWORD', usernameVariable: 'USERNAME')]) {
+                        sh '''
+                            echo $PASSWORD | docker login -u $USERNAME --password-stdin
+                            docker push ${imageTag}
+                        '''
                     }
                 }
             }
         }
+
         stage('Deploy to Kubernetes') {
             steps {
                 script {
-                    def deploymentYaml = 
-                    '''
+                    def imageTag = "${IMAGE_NAME}:${env.BUILD_NUMBER}"
+                    writeFile file: 'deployment.yaml', text: """
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -52,36 +74,30 @@ spec:
     spec:
       containers:
       - name: helloservice
-        image: "ratneshpuskar/helloservice:'''+${env.BUILD_NUMBER}+'''"
+        image: ${imageTag}
         ports:
-        - containerPort: 5000
-                    '''
-
-                    def serviceYaml =
-                    '''
+        - containerPort: ${K8S_PORT}
+"""
+                    writeFile file: 'service.yaml', text: """
 apiVersion: v1
 kind: Service
 metadata:
   name: helloservice-service
 spec:
+  ports:
+  - port: ${K8S_PORT}
+    targetPort: ${K8S_PORT}
   selector:
     app: helloservice
-  ports:
-    - protocol: TCP
-      port: 5000
-      targetPort: 5000
-                    '''
+"""
 
-                    writeFile file: 'deployment.yaml', text: deploymentYaml
-                    writeFile file: 'service.yaml', text: serviceYaml
-
-                    sh '''
-                    ssh -i /var/test.pem -o StrictHostKeyChecking=no ec2-user@15.206.72.215 "kubectl apply -f -" < deployment.yaml
-                    ssh -i /var/test.pem -o StrictHostKeyChecking=no ec2-user@15.206.72.215 "kubectl apply -f -" < service.yaml
-                    sleep 60
-                    ssh -i /var/test.pem -o StrictHostKeyChecking=no ec2-user@15.206.72.215 "sudo lsof -t -i :5000 | xargs -r sudo kill -9" || true
-                    ssh -i /var/test.pem -o StrictHostKeyChecking=no ec2-user@15.206.72.215 "kubectl port-forward --address 0.0.0.0 service/helloservice-service 5000:5000" || true
-                    '''
+                    sh """
+                        ssh -i ${CLUSTER_CREDENTIALS} -o StrictHostKeyChecking=no ${CLUSTER_USER}@${CLUSTER_HOST} "kubectl apply -f -" < deployment.yaml
+                        ssh -i ${CLUSTER_CREDENTIALS} -o StrictHostKeyChecking=no ${CLUSTER_USER}@${CLUSTER_HOST} "kubectl apply -f -" < service.yaml
+                        sleep 60
+                        ssh -i ${CLUSTER_CREDENTIALS} -o StrictHostKeyChecking=no ${CLUSTER_USER}@${CLUSTER_HOST} "sudo lsof -t -i :${K8S_PORT} | xargs -r sudo kill -9" || true
+                        ssh -i ${CLUSTER_CREDENTIALS} -o StrictHostKeyChecking=no ${CLUSTER_USER}@${CLUSTER_HOST} "kubectl port-forward --address 0.0.0.0 service/helloservice-service ${K8S_PORT}:${K8S_PORT}" || true
+                    """
                 }
             }
         }
@@ -89,11 +105,10 @@ spec:
 
     post {
         success {
-            echo 'Deployment successful!'
+            echo 'Deployment succeeded!'
         }
         failure {
-            echo 'Deployment failed!'
+            echo 'Deployment failed.'
         }
     }
 }
-
