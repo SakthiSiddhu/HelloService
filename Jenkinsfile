@@ -52,7 +52,7 @@ spec:
     spec:
       containers:
       - name: helloservice
-        image: "ratneshpuskar/helloservice:${env.BUILD_NUMBER}"
+        image: "ratneshpuskar/helloservice:'''+${env.BUILD_NUMBER}+'''"
         ports:
         - containerPort: 5000
                     '''
