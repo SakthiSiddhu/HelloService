@@ -8,29 +8,27 @@ pipeline {
     stages {
         stage('Checkout') {
             steps {
-                checkout([$class: 'GitSCM', branches: [[name: '*/main']], userRemoteConfigs: [[url: 'https://github.com/DatlaBharath/HelloService']]])
+                git branch: 'main', url: 'https://github.com/DatlaBharath/HelloService'
             }
         }
 
         stage('Build') {
             steps {
-                sh 'mvn clean package -DskipTests=true'
+                sh 'mvn clean package -DskipTests'
             }
         }
 
         stage('Build Docker Image') {
             steps {
                 script {
-                    dockerImage = docker.build("ratneshpuskar/helloservice:${env.BUILD_NUMBER}")
-                }
-            }
-        }
-
-        stage('Push Docker Image') {
-            steps {
-                withCredentials([usernamePassword(credentialsId: 'dockerhub_credentials', passwordVariable: 'dockerHubPassword', usernameVariable: 'dockerHubUsername')]) {
-                    sh "echo $dockerHubPassword | docker login -u $dockerHubUsername --password-stdin"
-                    sh "docker push ratneshpuskar/helloservice:${env.BUILD_NUMBER}"
+                    def imageName = "ratneshpuskar/helloservice:${env.BUILD_NUMBER}"
+                    withCredentials([usernamePassword(credentialsId: 'dockerhub_credentials', usernameVariable: 'USERNAME', passwordVariable: 'PASSWORD')]) {
+                        sh """
+                            docker build -t ${imageName} .
+                            echo $PASSWORD | docker login -u $USERNAME --password-stdin
+                            docker push ${imageName}
+                        """
+                    }
                 }
             }
         }
@@ -42,7 +40,7 @@ pipeline {
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: helloservice
+  name: helloservice-deployment
 spec:
   replicas: 1
   selector:
@@ -59,7 +57,6 @@ spec:
         ports:
         - containerPort: 5000
 """
-
                     def serviceYaml = """
 apiVersion: v1
 kind: Service
@@ -69,11 +66,10 @@ spec:
   selector:
     app: helloservice
   ports:
-  - protocol: TCP
-    port: 5000
-    targetPort: 5000
+    - protocol: TCP
+      port: 5000
+      targetPort: 5000
 """
-
                     writeFile file: 'deployment.yaml', text: deploymentYaml
                     writeFile file: 'service.yaml', text: serviceYaml
 
@@ -90,12 +86,14 @@ spec:
     }
 
     post {
-        success {
-            echo 'Build and deployment succeeded.'
+        always {
+            echo 'Pipeline completed.'
         }
-
+        success {
+            echo 'Pipeline executed successfully.'
+        }
         failure {
-            echo 'Build or deployment failed.'
+            echo 'Pipeline failed.'
         }
     }
 }
