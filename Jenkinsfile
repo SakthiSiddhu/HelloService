@@ -1,22 +1,14 @@
 pipeline {
     agent any
+    
     tools {
         maven 'Maven'
-    }
-    environment {
-        DOCKERHUB_CREDENTIALS = credentials('dockerhub_credentials')
-        GIT_REPO = "https://github.com/DatlaBharath/HelloService"
-        GIT_BRANCH = "main"
-        CONTAINER_PORT = 5000
-        NODE_PORT = 30007
-        K8S_SERVER = "43.205.198.61"
-        PEM_FILE = "/var/test.pem"
     }
     
     stages {
         stage('Checkout') {
             steps {
-                git branch: env.GIT_BRANCH, url: env.GIT_REPO
+                checkout([$class: 'GitSCM', branches: [[name: '*/main']], userRemoteConfigs: [[url: 'https://github.com/DatlaBharath/HelloService']]])
             }
         }
         
@@ -29,32 +21,20 @@ pipeline {
         stage('Build Docker Image') {
             steps {
                 script {
-                    def imageName = "ratneshpuskar/helloservice:${env.BUILD_NUMBER}"
-                    sh "docker build -t ${imageName} ."
-                    sh "docker tag ${imageName} ratneshpuskar/helloservice:latest"
-                }
-            }
-        }
-        
-        stage('Push Docker Image') {
-            steps {
-                script {
-                    def imageName = "ratneshpuskar/helloservice:${env.BUILD_NUMBER}"
+                    def imageTag = "ratneshpuskar/helloservice:${env.BUILD_NUMBER}"
+                    sh "docker build -t ${imageTag} ."
+                    
                     withCredentials([usernamePassword(credentialsId: 'dockerhub_credentials', passwordVariable: 'DOCKER_PASSWORD', usernameVariable: 'DOCKER_USERNAME')]) {
-                        sh """
-                            echo ${DOCKER_PASSWORD} | docker login -u ${DOCKER_USERNAME} --password-stdin
-                            docker push ${imageName}
-                            docker push ratneshpuskar/helloservice:latest
-                        """
+                        sh 'echo $DOCKER_PASSWORD | docker login -u $DOCKER_USERNAME --password-stdin'
+                        sh "docker push ${imageTag}"
                     }
                 }
             }
         }
         
-        stage('Create Deployment YAML') {
+        stage('Deploy to Kubernetes') {
             steps {
-                script {
-                    writeFile file: 'deployment.yaml', text: """
+                writeFile file: 'deployment.yaml', text: '''
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -73,16 +53,10 @@ spec:
       - name: helloservice
         image: ratneshpuskar/helloservice:${env.BUILD_NUMBER}
         ports:
-        - containerPort: ${env.CONTAINER_PORT}
-"""
-                }
-            }
-        }
-        
-        stage('Create Service YAML') {
-            steps {
-                script {
-                    writeFile file: 'service.yaml', text: """
+        - containerPort: 5000
+                '''
+                
+                writeFile file: 'service.yaml', text: '''
 apiVersion: v1
 kind: Service
 metadata:
@@ -91,34 +65,27 @@ spec:
   selector:
     app: helloservice
   ports:
-    - protocol: TCP
-      port: ${env.CONTAINER_PORT}
-      targetPort: ${env.CONTAINER_PORT}
-      nodePort: ${env.NODE_PORT}
+  - nodePort: 30007
+    port: 5000
+    targetPort: 5000
   type: NodePort
-"""
-                }
-            }
-        }
-        
-        stage('Deploy to Kubernetes') {
-            steps {
-                script {
-                    sshagent (credentials: ['k8s_ssh_credentials']) {
-                        sh """ssh -i /var/test.pem -o StrictHostKeyChecking=no ubuntu@43.205.198.61 "kubectl apply -f -" < deployment.yaml"""
-                        sh """ssh -i /var/test.pem -o StrictHostKeyChecking=no ubuntu@43.205.198.61 "kubectl apply -f -" < service.yaml"""
-                    }
-                }
+                '''
+                
+                sh ''' 
+                    ssh -i /var/test.pem -o StrictHostKeyChecking=no ubuntu@43.205.198.61 'kubectl apply -f -' < deployment.yaml
+                    ssh -i /var/test.pem -o StrictHostKeyChecking=no ubuntu@43.205.198.61 'kubectl apply -f -' < service.yaml
+                '''
             }
         }
     }
-
+    
     post {
         success {
-            echo 'Pipeline succeeded.'
+            echo 'Build and deployment succeeded!'
         }
+        
         failure {
-            echo 'Pipeline failed.'
+            echo 'Build or deployment failed.'
         }
     }
 }
