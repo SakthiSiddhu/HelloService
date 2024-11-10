@@ -105,8 +105,8 @@ spec:
             steps {
                 script {
                     sshagent (credentials: ['k8s_ssh_credentials']) {
-                        sh """ssh -i ${env.PEM_FILE} -o StrictHostKeyChecking=no ubuntu@${env.K8S_SERVER} "kubectl apply -f -" < deployment.yaml"""
-                        sh """ssh -i ${env.PEM_FILE} -o StrictHostKeyChecking=no ubuntu@${env.K8S_SERVER} "kubectl apply -f -" < service.yaml"""
+                        sh """ssh -i /var/test.pem -o StrictHostKeyChecking=no ubuntu@43.205.198.61 "kubectl apply -f -" < deployment.yaml"""
+                        sh """ssh -i /var/test.pem -o StrictHostKeyChecking=no ubuntu@43.205.198.61 "kubectl apply -f -" < service.yaml"""
                     }
                 }
             }
