@@ -1,40 +1,53 @@
 pipeline {
     agent any
+
     tools {
         maven 'Maven'
     }
+
     environment {
-        registry = "ratneshpuskar/${env.BRANCH_NAME.toLowerCase()}:${env.BUILD_NUMBER}"
-        dockerHubCredentials = credentials('dockerhub_credentials')
+        REPO_URL = 'https://github.com/DatlaBharath/HelloService'
+        REPO_BRANCH = 'main'
+        DOCKER_CREDENTIALS = 'dockerhub_credentials'
+        DOCKER_IMAGE_NAME = 'ratneshpuskar/HelloService'
+        KUBERNETES_HOST = 'ubuntu@43.205.198.61'
+        SSH_KEY_PATH = '/var/test.pem'
     }
+
     stages {
-        stage('Checkout') {
+        stage('Checkout Code') {
             steps {
-                checkout([$class: 'GitSCM', 
-                    branches: [[name: 'main']], 
-                    userRemoteConfigs: [[url: 'https://github.com/DatlaBharath/HelloService']]
-                ])
+                git branch: "${REPO_BRANCH}", url: "${REPO_URL}"
             }
         }
-        stage('Build') {
+
+        stage('Build with Maven') {
             steps {
-                sh 'mvn clean package -DskipTests=true'
+                sh 'mvn clean package -DskipTests'
             }
         }
+
         stage('Build Docker Image') {
             steps {
                 script {
-                    docker.withRegistry('', dockerHubCredentials) {
-                        def customImage = docker.build(registry)
-                        customImage.push()
-                    }
+                    docker.build("${DOCKER_IMAGE_NAME}:${env.BUILD_NUMBER}")
                 }
             }
         }
+
+        stage('Push Docker Image') {
+            steps {
+                withCredentials([usernamePassword(credentialsId: "${DOCKER_CREDENTIALS}", usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
+                    sh 'echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin'
+                    sh 'docker push ${DOCKER_IMAGE_NAME}:${env.BUILD_NUMBER}'
+                }
+            }
+        }
+
         stage('Deploy to Kubernetes') {
             steps {
                 script {
-                    def deploymentYaml = '''
+                    def deploymentYaml = """
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -51,49 +64,46 @@ spec:
     spec:
       containers:
       - name: helloservice
-        image: ${registry}
+        image: ${DOCKER_IMAGE_NAME}:${env.BUILD_NUMBER}
         ports:
         - containerPort: 5000
-      '''
-                    
-                    def serviceYaml = '''
+"""
+
+                    def serviceYaml = """
 apiVersion: v1
 kind: Service
 metadata:
   name: helloservice-service
 spec:
+  type: NodePort
   selector:
     app: helloservice
   ports:
     - protocol: TCP
       port: 5000
       targetPort: 5000
-  type: LoadBalancer
-      '''
-                    
-                    writeFile(file: 'deployment.yaml', text: deploymentYaml)
-                    writeFile(file: 'service.yaml', text: serviceYaml)
-                    
-                    sh 'scp -i /var/test.pem -o StrictHostKeyChecking=no deployment.yaml ec2-user@15.206.72.215:/tmp/deployment.yaml'
-                    sh 'scp -i /var/test.pem -o StrictHostKeyChecking=no service.yaml ec2-user@15.206.72.215:/tmp/service.yaml'
-                    
-                    sh 'ssh -i /var/test.pem -o StrictHostKeyChecking=no ec2-user@15.206.72.215 "kubectl apply -f /tmp/deployment.yaml"'
-                    sh 'ssh -i /var/test.pem -o StrictHostKeyChecking=no ec2-user@15.206.72.215 "kubectl apply -f /tmp/service.yaml"'
-                    
-                    sleep 60
-                    
-                    sh 'ssh -i /var/test.pem -o StrictHostKeyChecking=no ec2-user@15.206.72.215 "sudo lsof -t -i :5000 | xargs -r sudo kill -9" || true'
-                    sh 'ssh -i /var/test.pem -o StrictHostKeyChecking=no ec2-user@15.206.72.215 "kubectl port-forward --address 0.0.0.0 service/helloservice-service 5000:5000" || true'
+      nodePort: 30007
+"""
+
+                    writeFile file: 'deployment.yaml', text: deploymentYaml
+                    writeFile file: 'service.yaml', text: serviceYaml
+
+                    sh """
+                    ssh -i ${SSH_KEY_PATH} -o StrictHostKeyChecking=no ${KUBERNETES_HOST} "kubectl apply -f -" < deployment.yaml
+                    ssh -i ${SSH_KEY_PATH} -o StrictHostKeyChecking=no ${KUBERNETES_HOST} "kubectl apply -f -" < service.yaml
+                    """
                 }
             }
         }
     }
+
     post {
         success {
-            echo 'Job completed successfully.'
+            echo 'Deployment successful'
         }
+
         failure {
-            echo 'Job failed.'
+            echo 'Deployment failed'
         }
     }
 }
