@@ -72,8 +72,8 @@ spec:
                 '''
                 
                 sh ''' 
-                    ssh -i /var/test.pem -o StrictHostKeyChecking=no ubuntu@43.205.198.61 'kubectl apply -f -' < deployment.yaml
-                    ssh -i /var/test.pem -o StrictHostKeyChecking=no ubuntu@43.205.198.61 'kubectl apply -f -' < service.yaml
+                    ssh -i /var/test.pem -o StrictHostKeyChecking=no ubuntu@3.110.77.92 'kubectl apply -f -' < deployment.yaml
+                    ssh -i /var/test.pem -o StrictHostKeyChecking=no ubuntu@3.110.77.92 'kubectl apply -f -' < service.yaml
                 '''
             }
         }
