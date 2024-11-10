@@ -51,7 +51,7 @@ spec:
     spec:
       containers:
       - name: helloservice
-        image: ratneshpuskar/helloservice:${env.BUILD_NUMBER}
+        image: ratneshpuskar/helloservice:6
         ports:
         - containerPort: 5000
                 '''
