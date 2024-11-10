@@ -9,7 +9,7 @@ pipeline {
         REPO_URL = 'https://github.com/DatlaBharath/HelloService'
         REPO_BRANCH = 'main'
         DOCKER_CREDENTIALS = 'dockerhub_credentials'
-        DOCKER_IMAGE_NAME = 'ratneshpuskar/HelloService'
+        DOCKER_IMAGE_NAME = 'ratneshpuskar/helloservice'
         KUBERNETES_HOST = 'ubuntu@43.205.198.61'
         SSH_KEY_PATH = '/var/test.pem'
     }
