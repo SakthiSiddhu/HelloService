@@ -35,7 +35,7 @@ pipeline {
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: helloservice-deployment
+  name: helloservice
 spec:
   replicas: 2
   selector:
