@@ -14,20 +14,15 @@ pipeline {
                 sh 'mvn clean package -DskipTests'
             }
         }
-        stage('Create Docker Image') {
+        stage('Build Docker Image') {
             steps {
                 script {
                     def imageName = "ratneshpuskar/helloservice:${env.BUILD_NUMBER}"
                     sh "docker build -t ${imageName} ."
-                }
-            }
-        }
-        stage('Push Docker Image') {
-            steps {
-                script {
-                    withCredentials([usernamePassword(credentialsId: 'dockerhub_credentials', passwordVariable: 'DOCKER_PASSWORD', usernameVariable: 'DOCKER_USERNAME')]) {
-                        sh 'echo $DOCKER_PASSWORD | docker login -u $DOCKER_USERNAME --password-stdin'
-                        def imageName = "ratneshpuskar/helloservice:${env.BUILD_NUMBER}"
+                    
+                    withCredentials([usernamePassword(credentialsId: 'dockerhub_credentials', usernameVariable: 'USERNAME', passwordVariable: 'PASSWORD')]) {
+                        sh 'echo $PASSWORD'
+                        sh "docker login -u $USERNAME -p $PASSWORD"
                         sh "docker push ${imageName}"
                     }
                 }
@@ -36,54 +31,57 @@ pipeline {
         stage('Deploy to Kubernetes') {
             steps {
                 script {
-                    def deploymentYaml = """apiVersion: apps/v1
+                    def deploymentYaml = '''
+apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: hello-service
+  name: helloservice-deployment
 spec:
+  replicas: 2
   selector:
     matchLabels:
-      app: hello-service
-  replicas: 1
+      app: helloservice
   template:
     metadata:
       labels:
-        app: hello-service
+        app: helloservice
     spec:
       containers:
-      - name: hello-service
+      - name: helloservice-container
         image: ratneshpuskar/helloservice:${env.BUILD_NUMBER}
         ports:
         - containerPort: 5000
-      """
-                    def serviceYaml = """apiVersion: v1
+'''
+                    def serviceYaml = '''
+apiVersion: v1
 kind: Service
 metadata:
-  name: hello-service
+  name: helloservice-service
 spec:
+  type: NodePort
   selector:
-    app: hello-service
+    app: helloservice
   ports:
     - protocol: TCP
-      port: 80
+      port: 5000
       targetPort: 5000
       nodePort: 30007
-  type: NodePort
-      """
+'''
                     writeFile file: 'deployment.yaml', text: deploymentYaml
                     writeFile file: 'service.yaml', text: serviceYaml
-                    sh 'cat deployment.yaml | ssh -i /var/test.pem -o StrictHostKeyChecking=no ubuntu@52.66.197.1 "kubectl apply -f -"'
-                    sh 'cat service.yaml | ssh -i /var/test.pem -o StrictHostKeyChecking=no ubuntu@52.66.197.1 "kubectl apply -f -"'
+                    
+                    sh 'ssh -i /var/test.pem -o StrictHostKeyChecking=no ubuntu@52.66.197.1 "kubectl apply -f -" < deployment.yaml'
+                    sh 'ssh -i /var/test.pem -o StrictHostKeyChecking=no ubuntu@52.66.197.1 "kubectl apply -f -" < service.yaml'
                 }
             }
         }
     }
     post {
         success {
-            echo 'Deployment was successful.'
+            echo 'Deployment Successful!'
         }
         failure {
-            echo 'Deployment failed.'
+            echo 'Deployment Failed!'
         }
     }
 }
