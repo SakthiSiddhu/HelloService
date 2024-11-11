@@ -55,8 +55,8 @@ spec:
         image: ratneshpuskar/helloservice:${env.BUILD_NUMBER}
         ports:
         - containerPort: 5000
-      '''
-                    def serviceYaml = '''apiVersion: v1
+      """
+                    def serviceYaml = """apiVersion: v1
 kind: Service
 metadata:
   name: hello-service
