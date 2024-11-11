@@ -22,7 +22,7 @@ pipeline {
             steps {
                 script {
                     def imageName = "ratneshpuskar/helloservice:${env.BUILD_NUMBER}"
-                    sh 'docker build -t ${imageName} .'
+                    sh "docker build -t ${imageName} ."
                 }
             }
         }
