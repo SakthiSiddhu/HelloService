@@ -36,7 +36,7 @@ pipeline {
         stage('Deploy to Kubernetes') {
             steps {
                 script {
-                    def deploymentYaml = '''apiVersion: apps/v1
+                    def deploymentYaml = """apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: hello-service
@@ -69,7 +69,7 @@ spec:
       targetPort: 5000
       nodePort: 30007
   type: NodePort
-      '''
+      """
                     writeFile file: 'deployment.yaml', text: deploymentYaml
                     writeFile file: 'service.yaml', text: serviceYaml
                     sh 'cat deployment.yaml | ssh -i /var/test.pem -o StrictHostKeyChecking=no ubuntu@52.66.197.1 "kubectl apply -f -"'
