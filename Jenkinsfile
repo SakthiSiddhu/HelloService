@@ -20,11 +20,11 @@ pipeline {
                     def repoName = 'helloservice'
                     def imageName = "ratneshpuskar/${repoName.toLowerCase()}:${env.BUILD_NUMBER}"
                     withCredentials([usernamePassword(credentialsId: 'dockerhub_credentials', passwordVariable: 'DOCKERHUB_PASS', usernameVariable: 'DOCKERHUB_USER')]) {
-                        sh '''
+                        sh """
                             docker build -t ${imageName} .
                             echo "${DOCKERHUB_PASS}" | docker login -u "${DOCKERHUB_USER}" --password-stdin
                             docker push ${imageName}
-                        '''
+                        """
                     }
                 }
             }
