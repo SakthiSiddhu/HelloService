@@ -1,40 +1,33 @@
 pipeline {
-    agent any
-
+    agent {
+        label 'linux'
+    }
     tools {
         maven 'Maven'
     }
-
     stages {
         stage('Checkout') {
             steps {
                 git branch: 'main', url: 'https://github.com/DatlaBharath/HelloService'
             }
         }
-
         stage('Build') {
             steps {
                 sh 'mvn clean package -DskipTests'
             }
         }
-
-        stage('Docker Build and Push') {
+        stage('Build Docker Image') {
             steps {
                 script {
-                    def repoName = 'helloservice'
-                    def imageName = "ratneshpuskar/${repoName}:${env.BUILD_NUMBER}"
-                    
+                    def imageName = "ratneshpuskar/helloservice:${env.BUILD_NUMBER}"
+                    sh "docker build -t ${imageName} ."
                     withCredentials([usernamePassword(credentialsId: 'dockerhub_credentials', passwordVariable: 'DOCKER_PASSWORD', usernameVariable: 'DOCKER_USERNAME')]) {
-                        sh """
-                            echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
-                            docker build -t ${imageName} .
-                            docker push ${imageName}
-                        """
+                        sh 'echo $DOCKER_PASSWORD | docker login -u $DOCKER_USERNAME --password-stdin'
+                        sh "docker push ${imageName}"
                     }
                 }
             }
         }
-
         stage('Deploy to Kubernetes') {
             steps {
                 script {
@@ -44,7 +37,7 @@ kind: Deployment
 metadata:
   name: helloservice
 spec:
-  replicas: 1
+  replicas: 3
   selector:
     matchLabels:
       app: helloservice
@@ -65,33 +58,27 @@ kind: Service
 metadata:
   name: helloservice
 spec:
+  type: NodePort
   selector:
     app: helloservice
   ports:
-    - protocol: TCP
-      port: 5000
-      targetPort: 5000
-      nodePort: 30007
-  type: NodePort
+  - protocol: TCP
+    port: 5000
+    targetPort: 5000
+    nodePort: 30007
 """
-
-                    sh """
-                        echo "${deploymentYaml}" > deployment.yaml
-                        echo "${serviceYaml}" > service.yaml
-                        ssh -i /var/test.pem -o StrictHostKeyChecking=no ubuntu@13.233.88.236 "kubectl apply -f -" < deployment.yaml
-                        ssh -i /var/test.pem -o StrictHostKeyChecking=no ubuntu@13.233.88.236 "kubectl apply -f -" < service.yaml
-                    """
+                    sh """ssh -i /var/test.pem -o StrictHostKeyChecking=no ubuntu@13.126.24.151 'echo "${deploymentYaml}" | kubectl apply -f -'"""
+                    sh """ssh -i /var/test.pem -o StrictHostKeyChecking=no ubuntu@13.126.24.151 'echo "${serviceYaml}" | kubectl apply -f -'"""
                 }
             }
         }
     }
-
     post {
         success {
-            echo 'Pipeline completed successfully.'
+            echo 'Job completed successfully!'
         }
         failure {
-            echo 'Pipeline failed.'
+            echo 'Job failed.'
         }
     }
 }
