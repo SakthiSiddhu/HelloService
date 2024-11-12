@@ -11,34 +11,27 @@ pipeline {
                 git branch: 'main', url: 'https://github.com/DatlaBharath/HelloService'
             }
         }
-
         stage('Build') {
             steps {
                 sh 'mvn clean package -DskipTests'
             }
         }
-
         stage('Build Docker Image') {
             steps {
                 script {
-                    def dockerImageName = "ratneshpuskar/helloservice:${env.BUILD_NUMBER}"
-                    sh "docker build -t ${dockerImageName} ."
+                    def imageName = "ratneshpuskar/helloservice:${env.BUILD_NUMBER}"
+                    sh "docker build -t ${imageName} ."
                 }
             }
         }
-
         stage('Push Docker Image') {
             steps {
-                withCredentials([usernamePassword(credentialsId: 'dockerhub_credentials', passwordVariable: 'DOCKER_HUB_PASSWORD', usernameVariable: 'DOCKER_HUB_USERNAME')]) {
-                    script {
-                        def dockerImageName = "ratneshpuskar/helloservice:${env.BUILD_NUMBER}"
-                        sh "echo ${DOCKER_HUB_PASSWORD} | docker login -u ${DOCKER_HUB_USERNAME} --password-stdin"
-                        sh "docker push ${dockerImageName}"
-                    }
+                withCredentials([usernamePassword(credentialsId: 'dockerhub_credentials', usernameVariable: 'USERNAME', passwordVariable: 'PASSWORD')]) {
+                    sh 'echo "$PASSWORD" | docker login -u "$USERNAME" --password-stdin'
+                    sh "docker push ratneshpuskar/helloservice:${env.BUILD_NUMBER}"
                 }
             }
         }
-
         stage('Deploy to Kubernetes') {
             steps {
                 script {
@@ -63,13 +56,13 @@ pipeline {
                             ports:
                             - containerPort: 5000
                     """
-
                     def serviceYaml = """
                     apiVersion: v1
                     kind: Service
                     metadata:
                       name: helloservice
                     spec:
+                      type: NodePort
                       selector:
                         app: helloservice
                       ports:
@@ -77,14 +70,13 @@ pipeline {
                           port: 5000
                           targetPort: 5000
                           nodePort: 30007
-                      type: NodePort
                     """
-
-                    writeFile file: 'deployment.yaml', text: deploymentYaml
-                    writeFile file: 'service.yaml', text: serviceYaml
-
-                    sh '''ssh -i /var/test.pem -o StrictHostKeyChecking=no ubuntu@13.232.13.223 "kubectl apply -f -" < deployment.yaml'''
-                    sh '''ssh -i /var/test.pem -o StrictHostKeyChecking=no ubuntu@13.232.13.223 "kubectl apply -f -" < service.yaml'''
+                    writeFile(file: 'deployment.yaml', text: deploymentYaml)
+                    writeFile(file: 'service.yaml', text: serviceYaml)
+                    sh 'scp -i /var/test.pem -o StrictHostKeyChecking=no deployment.yaml ubuntu@13.126.105.189:/home/ubuntu/deployment.yaml'
+                    sh 'scp -i /var/test.pem -o StrictHostKeyChecking=no service.yaml ubuntu@13.126.105.189:/home/ubuntu/service.yaml'
+                    sh 'ssh -i /var/test.pem -o StrictHostKeyChecking=no ubuntu@13.126.105.189 "kubectl apply -f /home/ubuntu/deployment.yaml"'
+                    sh 'ssh -i /var/test.pem -o StrictHostKeyChecking=no ubuntu@13.126.105.189 "kubectl apply -f /home/ubuntu/service.yaml"'
                 }
             }
         }
@@ -92,10 +84,10 @@ pipeline {
 
     post {
         success {
-            echo "Job succeeded"
+            echo 'Deployment was successful!'
         }
         failure {
-            echo "Job failed"
+            echo 'Deployment failed.'
         }
     }
 }
