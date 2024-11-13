@@ -1,107 +1,95 @@
 pipeline {
     agent any
-
     tools {
         maven 'Maven'
     }
-
     stages {
-        stage('Checkout Code') {
+        stage('Checkout') {
             steps {
-                git url: 'https://github.com/DatlaBharath/HelloService', branch: 'main'
+                git branch: 'main', url: 'https://github.com/DatlaBharath/HelloService'
             }
         }
-
-        stage('Build Project') {
+        stage('Build') {
             steps {
                 sh 'mvn clean package -DskipTests'
             }
         }
-
         stage('Build Docker Image') {
             steps {
                 script {
-                    def imageName = "ratneshpuskar/helloservice:${env.BUILD_NUMBER}"
+                    def dockerImage = "ratneshpuskar/helloservice:${env.BUILD_NUMBER}"
                     sh """
-                    docker build -t ${imageName} .
+                        docker build -t ${dockerImage} .
                     """
                 }
             }
         }
-
         stage('Push Docker Image') {
             steps {
-                withCredentials([usernamePassword(credentialsId: 'dockerhub_credentials', usernameVariable: 'DOCKER_USERNAME', passwordVariable: 'DOCKER_PASSWORD')]) {
+                withCredentials([usernamePassword(credentialsId: 'dockerhub_credentials', passwordVariable: 'DOCKER_HUB_PASSWORD', usernameVariable: 'DOCKER_HUB_USERNAME')]) {
                     script {
-                        def imageName = "ratneshpuskar/helloservice:${env.BUILD_NUMBER}"
+                        def dockerImage = "ratneshpuskar/helloservice:${env.BUILD_NUMBER}"
                         sh """
-                        echo "${DOCKER_PASSWORD}" | docker login -u "${DOCKER_USERNAME}" --password-stdin
-                        docker push ${imageName}
-                        docker logout
+                            echo "${DOCKER_HUB_PASSWORD}" | docker login -u "${DOCKER_HUB_USERNAME}" --password-stdin
+                            docker push ${dockerImage}
                         """
                     }
                 }
             }
         }
-
         stage('Deploy to Kubernetes') {
             steps {
                 script {
-                    def imageName = "ratneshpuskar/helloservice:${env.BUILD_NUMBER}"
-                    def deploymentYaml = """
-                    apiVersion: apps/v1
-                    kind: Deployment
-                    metadata:
-                      name: helloservice-deployment
-                    spec:
-                      replicas: 1
-                      selector:
-                        matchLabels:
-                          app: helloservice
-                      template:
+                    def dockerImage = "ratneshpuskar/helloservice:${env.BUILD_NUMBER}"
+                    def deploymentYAML = """
+                        apiVersion: apps/v1
+                        kind: Deployment
                         metadata:
-                          labels:
-                            app: helloservice
+                          name: helloservice
                         spec:
-                          containers:
-                          - name: helloservice
-                            image: ${imageName}
-                            ports:
-                            - containerPort: 5000
+                          replicas: 1
+                          selector:
+                            matchLabels:
+                              app: helloservice
+                          template:
+                            metadata:
+                              labels:
+                                app: helloservice
+                            spec:
+                              containers:
+                              - name: helloservice
+                                image: ${dockerImage}
+                                ports:
+                                - containerPort: 5000
                     """
-                    def serviceYaml = """
-                    apiVersion: v1
-                    kind: Service
-                    metadata:
-                      name: helloservice-service
-                    spec:
-                      selector:
-                        app: helloservice
-                      ports:
-                        - protocol: TCP
-                          port: 5000
-                          targetPort: 5000
-                          nodePort: 30007
-                      type: NodePort
+                    def serviceYAML = """
+                        apiVersion: v1
+                        kind: Service
+                        metadata:
+                          name: helloservice
+                        spec:
+                          type: NodePort
+                          selector:
+                            app: helloservice
+                          ports:
+                            - protocol: TCP
+                              port: 5000
+                              nodePort: 30007
                     """
-                    writeFile file: 'deployment.yaml', text: deploymentYaml
-                    writeFile file: 'service.yaml', text: serviceYaml
-
                     sh """
-                    ssh -i /var/test.pem -o StrictHostKeyChecking=no ubuntu@13.233.55.187 "kubectl apply -f -" < deployment.yaml
-                    ssh -i /var/test.pem -o StrictHostKeyChecking=no ubuntu@13.233.55.187 "kubectl apply -f -" < service.yaml
+                        echo '${deploymentYAML}' | ssh -i /var/test.pem -o StrictHostKeyChecking=no ubuntu@15.206.158.106 "kubectl apply -f -"
+                        echo '${serviceYAML}' | ssh -i /var/test.pem -o StrictHostKeyChecking=no ubuntu@15.206.158.106 "kubectl apply -f -"
                     """
                 }
             }
         }
     }
-
     post {
         success {
-            echo 'Build, Push, and Deploy succeeded.'
+            echo 'Pipeline completed successfully.'
         }
         failure {
-            echo 'Build, Push, and Deploy failed.'
+            echo 'Pipeline failed.'
         }
     }
 }
