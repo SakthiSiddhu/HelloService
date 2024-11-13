@@ -44,7 +44,6 @@ pipeline {
                       name: helloservice
                     spec:
                       replicas: 1
-                      terminationGracePeriodSeconds: 5
                       selector:
                         matchLabels:
                           app: helloservice
@@ -53,11 +52,13 @@ pipeline {
                           labels:
                             app: helloservice
                         spec:
+                          terminationGracePeriodSeconds: 5  # This should be placed here
                           containers:
-                          - name: helloservice
-                            image: ratneshpuskar/helloservice:${env.BUILD_NUMBER}
-                            ports:
-                            - containerPort: 5000
+                            - name: helloservice
+                              image: ratneshpuskar/helloservice:6
+                              ports:
+                                - containerPort: 5000
+
                     """
                     def service = """
                     apiVersion: v1
