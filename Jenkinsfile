@@ -44,6 +44,11 @@ pipeline {
                       name: helloservice
                     spec:
                       replicas: 1
+                      strategy:
+                        type: RollingUpdate
+                        rollingUpdate:
+                          maxSurge: 1
+                          maxUnavailable: 0
                       selector:
                         matchLabels:
                           app: helloservice
