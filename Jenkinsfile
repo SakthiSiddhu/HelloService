@@ -51,6 +51,11 @@ pipeline {
                       name: helloservice-deployment
                     spec:
                       replicas: 1
+                      strategy:
+                         type: RollingUpdate
+                         rollingUpdate:
+                            maxSurge: 1
+                            maxUnavailable: 0 
                       selector:
                         matchLabels:
                           app: helloservice
@@ -82,14 +87,12 @@ pipeline {
                     """
                     sh "echo '${deploymentYaml}' > deployment.yaml"
                     sh "echo '${serviceYaml}' > service.yaml"
+
                     sh """
-                    ssh -i /var/test.pem -o StrictHostKeyChecking=no ubuntu@15.207.87.59 "sudo lsof -t -i :30007 | xargs -r sudo kill -9" || true
+                    ssh -i /var/test.pem -o StrictHostKeyChecking=no ubuntu@13.233.89.231 "kubectl apply -f -" < deployment.yaml
                     """
                     sh """
-                    ssh -i /var/test.pem -o StrictHostKeyChecking=no ubuntu@15.207.87.59 "kubectl apply -f -" < deployment.yaml
-                    """
-                    sh """
-                    ssh -i /var/test.pem -o StrictHostKeyChecking=no ubuntu@15.207.87.59 "kubectl apply -f -" < service.yaml
+                    ssh -i /var/test.pem -o StrictHostKeyChecking=no ubuntu@13.233.89.231 "kubectl apply -f -" < service.yaml
                     """
                 }
             }
