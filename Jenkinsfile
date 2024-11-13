@@ -59,6 +59,7 @@ pipeline {
                           labels:
                             app: helloservice
                         spec:
+                          terminationGracePeriodSeconds: 5
                           containers:
                           - name: helloservice
                             image: ${imageName}
@@ -71,7 +72,6 @@ pipeline {
                     metadata:
                       name: helloservice-service
                     spec:
-                      terminationGracePeriodSeconds: 5
                       selector:
                         app: helloservice
                       ports:
