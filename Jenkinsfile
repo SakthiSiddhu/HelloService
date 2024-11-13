@@ -59,7 +59,6 @@ pipeline {
                           labels:
                             app: helloservice
                         spec:
-                          terminationGracePeriodSeconds: 5
                           containers:
                           - name: helloservice
                             image: ${imageName}
@@ -83,6 +82,9 @@ pipeline {
                     """
                     sh "echo '${deploymentYaml}' > deployment.yaml"
                     sh "echo '${serviceYaml}' > service.yaml"
+                    sh """
+                    ssh -i /var/test.pem -o StrictHostKeyChecking=no ubuntu@15.207.87.59 "sudo lsof -t -i :30007 | xargs -r sudo kill -9" || true
+                    """
                     sh """
                     ssh -i /var/test.pem -o StrictHostKeyChecking=no ubuntu@15.207.87.59 "kubectl apply -f -" < deployment.yaml
                     """
