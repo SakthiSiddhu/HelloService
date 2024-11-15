@@ -1,47 +1,52 @@
 pipeline {
     agent any
+
     tools {
-        maven "Maven"
+        maven 'Maven'
     }
+
     stages {
-        stage('Checkout Code') {
+        stage('Checkout') {
             steps {
-                git branch: 'main', url: 'https://github.com/DatlaBharath/HelloService'
+                git url: 'https://github.com/DatlaBharath/HelloService', branch: 'main'
             }
         }
-        stage('Build Project') {
+
+        stage('Build') {
             steps {
                 sh 'mvn clean package -DskipTests'
             }
         }
+
         stage('Build Docker Image') {
             steps {
                 script {
-                    def dockerImageTag = "ratneshpuskar/helloservice:${env.BUILD_NUMBER}"
-                    sh 'docker build -t ${dockerImageTag} .'
+                    def imageName = "ratneshpuskar/helloservice:${env.BUILD_NUMBER}"
+                    sh "docker build -t ${imageName} ."
                 }
             }
         }
+
         stage('Push Docker Image') {
             steps {
-                withCredentials([usernamePassword(credentialsId: 'dockerhub_credentials', passwordVariable: 'DOCKER_PASSWORD', usernameVariable: 'DOCKER_USERNAME')]) {
+                withCredentials([usernamePassword(credentialsId: 'dockerhub_credentials', passwordVariable: 'DOCKER_HUB_PASS', usernameVariable: 'DOCKER_HUB_USER')]) {
                     script {
-                        sh 'echo ${DOCKER_PASSWORD} | docker login -u ${DOCKER_USERNAME} --password-stdin'
-                        sh 'docker push ratneshpuskar/helloservice:${env.BUILD_NUMBER}'
+                        def imageName = "ratneshpuskar/helloservice:${env.BUILD_NUMBER}"
+                        sh "echo ${DOCKER_HUB_PASS} | docker login -u ${DOCKER_HUB_USER} --password-stdin"
+                        sh "docker push ${imageName}"
                     }
                 }
             }
         }
+
         stage('Deploy to Kubernetes') {
             steps {
                 script {
-                    def deploymentYaml = '''
+                    def deploymentYaml = """
                     apiVersion: apps/v1
                     kind: Deployment
                     metadata:
                       name: helloservice-deployment
-                      labels:
-                        app: helloservice
                     spec:
                       replicas: 1
                       selector:
@@ -57,10 +62,9 @@ pipeline {
                             image: ratneshpuskar/helloservice:${env.BUILD_NUMBER}
                             ports:
                             - containerPort: 5000
-                    '''
-                    writeFile file: 'deployment.yaml', text: deploymentYaml
-
-                    def serviceYaml = '''
+                    """
+                    
+                    def serviceYaml = """
                     apiVersion: v1
                     kind: Service
                     metadata:
@@ -70,23 +74,28 @@ pipeline {
                       selector:
                         app: helloservice
                       ports:
-                        - port: 5000
-                          nodePort: 30007
-                    '''
+                      - protocol: TCP
+                        port: 5000
+                        targetPort: 5000
+                        nodePort: 30007
+                    """
+                    
+                    writeFile file: 'deployment.yaml', text: deploymentYaml
                     writeFile file: 'service.yaml', text: serviceYaml
-
+                    
                     sh 'ssh -i /var/test.pem -o StrictHostKeyChecking=no ubuntu@65.2.190.63 "kubectl apply -f -" < deployment.yaml'
                     sh 'ssh -i /var/test.pem -o StrictHostKeyChecking=no ubuntu@65.2.190.63 "kubectl apply -f -" < service.yaml'
                 }
             }
         }
     }
+    
     post {
         success {
-            echo 'Build and deployment successful'
+            echo 'Deployment successful!'
         }
         failure {
-            echo 'Build or deployment failed'
+            echo 'Deployment failed.'
         }
     }
 }
