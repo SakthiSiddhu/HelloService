@@ -1,19 +1,23 @@
 pipeline {
     agent any
-    tools { 
-        maven 'Maven' 
+
+    tools {
+        maven 'Maven'
     }
+
     stages {
         stage('Checkout Code') {
             steps {
                 git branch: 'main', url: 'https://github.com/DatlaBharath/HelloService'
             }
         }
+        
         stage('Build Project') {
             steps {
                 sh 'mvn clean package -DskipTests'
             }
         }
+
         stage('Build Docker Image') {
             steps {
                 script {
@@ -22,16 +26,16 @@ pipeline {
                 }
             }
         }
-        stage('Login and Push Docker Image') {
+
+        stage('Push Docker Image') {
             steps {
-                script {
-                    withCredentials([usernamePassword(credentialsId: 'dockerhub_credentials', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
-                        sh 'echo ${DOCKER_PASS} | docker login -u ${DOCKER_USER} --password-stdin'
-                        sh 'docker push ratneshpuskar/helloservice:${env.BUILD_NUMBER}'
-                    }
+                withCredentials([usernamePassword(credentialsId: 'dockerhub_credentials', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
+                    sh 'echo ${DOCKER_PASS} | docker login -u ${DOCKER_USER} --password-stdin'
+                    sh "docker push ratneshpuskar/helloservice:${env.BUILD_NUMBER}"
                 }
             }
         }
+
         stage('Deploy to Kubernetes') {
             steps {
                 script {
@@ -62,31 +66,31 @@ kind: Service
 metadata:
   name: helloservice-service
 spec:
+  type: NodePort
+  ports:
+  - port: 5000
+    nodePort: 30007
   selector:
     app: helloservice
-  ports:
-    - protocol: TCP
-      port: 5000
-      targetPort: 5000
-      nodePort: 30007
-  type: NodePort
 """
-                    writeFile(file: 'deployment.yaml', text: deploymentYaml)
-                    writeFile(file: 'service.yaml', text: serviceYaml)
-                    sh """
-                      ssh -i /var/test.pem -o StrictHostKeyChecking=no ubuntu@13.107.58.12 "kubectl apply -f -" < deployment.yaml
-                      ssh -i /var/test.pem -o StrictHostKeyChecking=no ubuntu@13.107.58.12 "kubectl apply -f -" < service.yaml
-                    """
+                    writeFile file: 'deployment.yaml', text: deploymentYaml
+                    writeFile file: 'service.yaml', text: serviceYaml
+
+                    sh 'scp -i /var/test.pem -o StrictHostKeyChecking=no deployment.yaml ubuntu@13.107.58.12:~/'
+                    sh 'scp -i /var/test.pem -o StrictHostKeyChecking=no service.yaml ubuntu@13.107.58.12:~/'
+                    sh 'ssh -i /var/test.pem -o StrictHostKeyChecking=no ubuntu@13.107.58.12 "kubectl apply -f ~/deployment.yaml"'
+                    sh 'ssh -i /var/test.pem -o StrictHostKeyChecking=no ubuntu@13.107.58.12 "kubectl apply -f ~/service.yaml"'
                 }
             }
         }
     }
+
     post {
         success {
-            echo 'Deployment Successful'
+            echo 'Pipeline completed successfully.'
         }
         failure {
-            echo 'Deployment Failed'
+            echo 'Pipeline failed.'
         }
     }
 }
