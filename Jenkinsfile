@@ -92,7 +92,7 @@ pipeline {
 
     post {
         success {
-            echo 'Deployment was successful!'
+            echo 'Deployment was successfull again!'
         }
         failure {
             echo 'Deployment failed!'
