@@ -1,41 +1,39 @@
 pipeline {
     agent any
-
     tools {
-        maven 'Maven'
+        jdk 'java-11'
     }
-
     stages {
-        stage('Checkout Code') {
+        stage('Checkout') {
             steps {
-                git branch: 'main', url: 'https://github.com/DatlaBharath/HelloService'
+                checkout([$class: 'GitSCM', branches: [[name: '*/main']], userRemoteConfigs: [[url: 'https://github.com/username/reponame.git']]])
             }
         }
-        
-        stage('Build Project') {
+        stage('Build') {
             steps {
-                sh 'mvn clean package -DskipTests'
+                sh './mvnw clean package -DskipTests'
             }
         }
-
         stage('Build Docker Image') {
             steps {
                 script {
-                    def imageName = "ratneshpuskar/helloservice:${env.BUILD_NUMBER}"
-                    sh "docker build -t ${imageName} ."
+                    def repoName = 'reponame'.toLowerCase()
+                    def imageTag = "ratneshpuskar/${repoName}:${env.BUILD_NUMBER}"
+                    
+                    sh "docker build -t ${imageTag} ."
                 }
             }
         }
-
         stage('Push Docker Image') {
             steps {
-                withCredentials([usernamePassword(credentialsId: 'dockerhub_credentials', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
-                    sh 'echo ${DOCKER_PASS} | docker login -u ${DOCKER_USER} --password-stdin'
-                    sh "docker push ratneshpuskar/helloservice:${env.BUILD_NUMBER}"
+                withCredentials([usernamePassword(credentialsId: 'dockerhub_credentials', passwordVariable: 'DOCKER_HUB_PASSWORD', usernameVariable: 'DOCKER_HUB_USERNAME')]) {
+                    sh """
+                        echo "${DOCKER_HUB_PASSWORD}" | docker login -u "${DOCKER_HUB_USERNAME}" --password-stdin
+                        docker push ratneshpuskar/${repoName}:${env.BUILD_NUMBER}
+                    """
                 }
             }
         }
-
         stage('Deploy to Kubernetes') {
             steps {
                 script {
@@ -43,54 +41,54 @@ pipeline {
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: helloservice-deployment
+  name: ${repoName}-deployment
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: helloservice
+      app: ${repoName}
   template:
     metadata:
       labels:
-        app: helloservice
+        app: ${repoName}
     spec:
       containers:
-      - name: helloservice
-        image: ratneshpuskar/helloservice:${env.BUILD_NUMBER}
+      - name: ${repoName}
+        image: ratneshpuskar/${repoName}:${env.BUILD_NUMBER}
         ports:
-        - containerPort: 5000
+        - containerPort: 8080
 """
+
                     def serviceYaml = """
 apiVersion: v1
 kind: Service
 metadata:
-  name: helloservice-service
+  name: ${repoName}-service
 spec:
   type: NodePort
-  ports:
-  - port: 5000
-    nodePort: 30007
   selector:
-    app: helloservice
+    app: ${repoName}
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 8080
+      nodePort: 30007
 """
-                    writeFile file: 'deployment.yaml', text: deploymentYaml
-                    writeFile file: 'service.yaml', text: serviceYaml
 
-                    sh 'scp -i /var/test.pem -o StrictHostKeyChecking=no deployment.yaml ubuntu@13.107.58.12:~/'
-                    sh 'scp -i /var/test.pem -o StrictHostKeyChecking=no service.yaml ubuntu@13.107.58.12:~/'
-                    sh 'ssh -i /var/test.pem -o StrictHostKeyChecking=no ubuntu@13.107.58.12 "kubectl apply -f ~/deployment.yaml"'
-                    sh 'ssh -i /var/test.pem -o StrictHostKeyChecking=no ubuntu@13.107.58.12 "kubectl apply -f ~/service.yaml"'
+                    sh """
+                        ssh -i /var/test.pem -o StrictHostKeyChecking=no ubuntu@13.107.58.12 "kubectl apply -f -" <<< "${deploymentYaml}"
+                        ssh -i /var/test.pem -o StrictHostKeyChecking=no ubuntu@13.107.58.12 "kubectl apply -f -" <<< "${serviceYaml}"
+                    """
                 }
             }
         }
     }
-
     post {
         success {
-            echo 'Pipeline completed successfully.'
+            echo 'Deployment succeeded'
         }
         failure {
-            echo 'Pipeline failed.'
+            echo 'Deployment failed'
         }
     }
 }
