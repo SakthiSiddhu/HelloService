@@ -1,24 +1,20 @@
 pipeline {
     agent any
-
     tools {
         maven 'Maven'
     }
-
     stages {
-        stage('Checkout') {
+        stage('Checkout SCM') {
             steps {
                 git url: 'https://github.com/DatlaBharath/HelloService', branch: 'main'
             }
         }
-
-        stage('Build') {
+        stage('Build Maven project') {
             steps {
-                sh 'mvn clean package -DskipTests'
+                sh 'mvn clean install -DskipTests'
             }
         }
-
-        stage('Build Docker Image') {
+        stage('Build Docker image') {
             steps {
                 script {
                     def imageName = "ratneshpuskar/helloservice:${env.BUILD_NUMBER}"
@@ -26,21 +22,17 @@ pipeline {
                 }
             }
         }
-
-        stage('Push Docker Image') {
+        stage('Push Docker image to Docker Hub') {
             steps {
-                withCredentials([usernamePassword(credentialsId: 'dockerhub_credentials', usernameVariable: 'DOCKER_USERNAME', passwordVariable: 'DOCKER_PASSWORD')]) {
+                withCredentials([usernamePassword(credentialsId: 'dockerhub_credentials', passwordVariable: 'PASSWORD', usernameVariable: 'USERNAME')]) {
                     script {
+                        sh 'echo ${PASSWORD} | docker login -u ${USERNAME} --password-stdin'
                         def imageName = "ratneshpuskar/helloservice:${env.BUILD_NUMBER}"
-                        sh """
-                            echo ${DOCKER_PASSWORD} | docker login --username ${DOCKER_USERNAME} --password-stdin
-                            docker push ${imageName}
-                        """
+                        sh "docker push ${imageName}"
                     }
                 }
             }
         }
-
         stage('Deploy to Kubernetes') {
             steps {
                 script {
@@ -75,30 +67,30 @@ spec:
   selector:
     app: helloservice
   ports:
-    - protocol: TCP
-      port: 80
-      targetPort: 5000
-      nodePort: 30007
+  - protocol: TCP
+    port: 5000
+    targetPort: 5000
+    nodePort: 30007
 """
+                    def kubernetesServer = "ubuntu@<Kubernetes-Server-IP>"
+
                     writeFile file: 'deployment.yaml', text: deploymentYaml
                     writeFile file: 'service.yaml', text: serviceYaml
 
                     sh """
-                        ssh -i /var/test.pem -o StrictHostKeyChecking=no ubuntu@13.232.75.141 "kubectl apply -f -" < deployment.yaml
-                        ssh -i /var/test.pem -o StrictHostKeyChecking=no ubuntu@13.232.75.141 "kubectl apply -f -" < service.yaml
-                    """
+ssh -i /var/test.pem -o StrictHostKeyChecking=no ${kubernetesServer} "kubectl apply -f -" < deployment.yaml
+ssh -i /var/test.pem -o StrictHostKeyChecking=no ${kubernetesServer} "kubectl apply -f -" < service.yaml
+"""
                 }
             }
         }
     }
-
     post {
         success {
-            echo 'Deployment successful!'
+            echo 'Build, push and deployment completed successfully.'
         }
-
         failure {
-            echo 'Deployment failed.'
+            echo 'Build, push or deployment failed.'
         }
     }
 }
