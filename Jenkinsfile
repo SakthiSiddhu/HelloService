@@ -2,36 +2,37 @@ pipeline {
     agent any
 
     tools {
-        // Example: Define your build tools, e.g. Maven or other
-        // maven 'M3'
-        // Remove this and add the correct tool
+        maven "Maven"
     }
 
     stages {
         stage('Checkout') {
             steps {
-                // Replace with your specific SCM checkout
-                checkout([$class: 'GitSCM', branches: [[name: '*/your-branch']], userRemoteConfigs: [[url: 'your-repo-url']]])
+                git branch: 'main', url: 'https://github.com/DatlaBharath/HelloService'
             }
         }
 
         stage('Build') {
             steps {
-                // Assuming you are using Maven. Skip the tests during build
-                sh 'mvn clean install -DskipTests'
+                sh 'mvn clean package -DskipTests'
             }
         }
 
-        stage('Docker Build and Push') {
+        stage('Build Docker Image') {
             steps {
                 script {
-                    def app = "ratneshpuskar/your-repo-name".toLowerCase()
-                    def commitId = env.BUILD_NUMBER
+                    def dockerImageName = "ratneshpuskar/helloservice:${env.BUILD_NUMBER}"
+                    sh "docker build -t ${dockerImageName} ."
+                }
+            }
+        }
 
-                    withCredentials([usernamePassword(credentialsId: 'dockerhub_credentials', passwordVariable: 'dockerPassword', usernameVariable: 'dockerUsername')]) {
-                        sh "docker build -t ${app}:${commitId} ."
-                        sh "docker login -u \"${dockerUsername}\" -p \"${dockerPassword}\""
-                        sh "docker push ${app}:${commitId}"
+        stage('Push Docker Image') {
+            steps {
+                script {
+                    withCredentials([usernamePassword(credentialsId: 'dockerhub_credentials', passwordVariable: 'DOCKER_HUB_PASSWORD', usernameVariable: 'DOCKER_HUB_USERNAME')]) {
+                        sh "echo ${DOCKER_HUB_PASSWORD} | docker login -u ${DOCKER_HUB_USERNAME} --password-stdin"
+                        sh "docker push ratneshpuskar/helloservice:${env.BUILD_NUMBER}"
                     }
                 }
             }
@@ -40,50 +41,47 @@ pipeline {
         stage('Deploy to Kubernetes') {
             steps {
                 script {
-                    def app = "ratneshpuskar/your-repo-name".toLowerCase()
-                    def commitId = env.BUILD_NUMBER
+                    def deployment = """apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hello-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: hello-service
+  template:
+    metadata:
+      labels:
+        app: hello-service
+    spec:
+      containers:
+      - name: hello-service
+        image: ratneshpuskar/helloservice:${env.BUILD_NUMBER}
+        ports:
+        - containerPort: 5000
+"""
 
-                    writeFile file: 'deployment.yaml', text: """
-                    apiVersion: apps/v1
-                    kind: Deployment
-                    metadata:
-                      name: your-app
-                    spec:
-                      replicas: 1
-                      selector:
-                        matchLabels:
-                          app: your-app
-                      template:
-                        metadata:
-                          labels:
-                            app: your-app
-                        spec:
-                          containers:
-                          - name: your-app
-                            image: ${app}:${commitId}
-                            ports:
-                            - containerPort: 80
-                    """
+                    def service = """apiVersion: v1
+kind: Service
+metadata:
+  name: hello-service
+spec:
+  type: NodePort
+  selector:
+    app: hello-service
+  ports:
+  - protocol: TCP
+    port: 5000
+    targetPort: 5000
+    nodePort: 30007
+"""
 
-                    writeFile file: 'service.yaml', text: """
-                    apiVersion: v1
-                    kind: Service
-                    metadata:
-                      name: your-app-service
-                    spec:
-                      selector:
-                        app: your-app
-                      ports:
-                        - protocol: TCP
-                          port: 80
-                          targetPort: 80
-                          nodePort: 30007
-                      type: NodePort
-                    """
-                    sh """
-                    ssh -i /var/test.pem -o StrictHostKeyChecking=no ubuntu@your-k8s-host "kubectl apply -f -" < deployment.yaml
-                    ssh -i /var/test.pem -o StrictHostKeyChecking=no ubuntu@your-k8s-host "kubectl apply -f -" < service.yaml
-                    """
+                    writeFile file: 'deployment.yaml', text: deployment
+                    writeFile file: 'service.yaml', text: service
+
+                    sh 'ssh -i /var/test.pem -o StrictHostKeyChecking=no ubuntu@ "kubectl apply -f -" < deployment.yaml'
+                    sh 'ssh -i /var/test.pem -o StrictHostKeyChecking=no ubuntu@ "kubectl apply -f -" < service.yaml'
                 }
             }
         }
@@ -91,10 +89,10 @@ pipeline {
 
     post {
         success {
-            echo 'Deployment successful!'
+            echo 'Build and Deployment Completed Successfully!'
         }
         failure {
-            echo 'Deployment failed!'
+            echo 'Build or Deployment Failed.'
         }
     }
 }
