@@ -27,9 +27,6 @@ jobs:
     needs: maven_build  # Ensure that the 'build' job runs first
 
     steps:
-      - name: Check out code
-        uses: actions/checkout@v2
-
       - name: Build Docker image
         run: |
           IMAGE_NAME="sakthisiddu1/helloservice:${{ github.run_number }}"
