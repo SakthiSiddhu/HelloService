@@ -1,4 +1,4 @@
-name: Build and Push Docker Image
+name: Build, Build Docker Image, and Push
 
 on:
   push:
@@ -6,33 +6,47 @@ on:
       - main  # Trigger the workflow on push to the main branch
 
 jobs:
-  build:
+  maven_build:
     runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v2
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Build with Maven
+        run: mvn clean install -DskipTests
+
+  docker_build:
+    runs-on: ubuntu-latest
+    needs: maven_build  # Ensure that the 'build' job runs first
 
     steps:
-    - name: Check out code
-      uses: actions/checkout@v2
-    - name: Set up JDK 17
-      uses: actions/setup-java@v4
-      with:
-        java-version: '17'
-        distribution: 'temurin'
-        cache: maven
-    - name: Build with Maven
-      run: mvn clean install -DskipTests
+      - name: Check out code
+        uses: actions/checkout@v2
 
-    - name: Log in to Docker Hub
-      uses: docker/login-action@v2
-      with:
-        username: ${{ secrets.DOCKERHUB_USERNAME }}
-        password: ${{ secrets.DOCKERHUB_PASSWORD }}
+      - name: Build Docker image
+        run: |
+          IMAGE_NAME="sakthisiddu1/helloservice:${{ github.run_number }}"
+          docker build -t $IMAGE_NAME .
 
-    - name: Build Docker image
-      run: |
-        IMAGE_NAME="sakthisiddu1/helloservice:${{ github.run_number }}"
-        docker build -t $IMAGE_NAME .
+  docker_push:
+    runs-on: ubuntu-latest
+    needs: docker_build  # Ensure that the 'docker_build' job runs first
 
-    - name: Push Docker image to Docker Hub
-      run: |
-        IMAGE_NAME="sakthisiddu1/helloservice:${{ github.run_number }}"
-        docker push $IMAGE_NAME
+    steps:
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_PASSWORD }}
+
+      - name: Push Docker image to Docker Hub
+        run: |
+          IMAGE_NAME="sakthisiddu1/helloservice:${{ github.run_number }}"
+          docker push $IMAGE_NAME
