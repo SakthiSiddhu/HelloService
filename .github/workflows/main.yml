@@ -24,8 +24,6 @@ jobs:
     runs-on: ubuntu-latest
     needs: maven_build  # Ensures this job runs only after maven_build completes
     steps:
-      - name: Check out code
-        uses: actions/checkout@v2
       - name: Build Docker image
         run: |
           IMAGE_NAME="sakthisiddu1/helloservice:${{ github.run_number }}"
