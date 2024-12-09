@@ -19,13 +19,22 @@ jobs:
           cache: maven
       - name: Build with Maven
         run: mvn clean install -DskipTests
+      - name: Upload Maven build artifacts
+        uses: actions/upload-artifact@v2
+        with:
+          name: bootdocker-jar
+          path: target/bootdocker.jar
 
   docker_build:
     runs-on: ubuntu-latest
-    needs: maven_build  # Ensures this job runs only after maven_build completes
+    needs: maven_build  # Ensure this job runs only after maven_build completes
     steps:
       - name: Check out code
         uses: actions/checkout@v2
+      - name: Download Maven build artifacts
+        uses: actions/download-artifact@v2
+        with:
+          name: bootdocker-jar
       - name: Build Docker image
         run: |
           IMAGE_NAME="sakthisiddu1/helloservice:${{ github.run_number }}"
@@ -33,7 +42,7 @@ jobs:
 
   docker_push:
     runs-on: ubuntu-latest
-    needs: docker_build  # Ensures this job runs only after docker_build completes
+    needs: docker_build  # Ensure this job runs only after docker_build completes
     steps:
       - name: Log in to Docker Hub
         uses: docker/login-action@v2
