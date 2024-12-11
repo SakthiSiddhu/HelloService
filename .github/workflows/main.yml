@@ -71,7 +71,7 @@ jobs:
               spec:
                 containers:
                 - name: helloservice
-                  image: ratneshpuskar/helloservice:${{ github.run_number }}
+                  image: sakthisiddu1/helloservice:${{ github.run_number }}
                   ports:
                   - containerPort: 5000
           EOF
