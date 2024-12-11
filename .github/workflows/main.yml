@@ -92,5 +92,5 @@ jobs:
   
       - name: Apply deployment and service to Kubernetes
         run: |
-          ssh -o StrictHostKeyChecking=no -i /home/ec2-user/.ssh/test.pem ubuntu@43.205.240.113 "kubectl apply -f deployment.yaml"
-          ssh -o StrictHostKeyChecking=no -i /home/ec2-user/.ssh/test.pem ubuntu@43.205.240.113 "kubectl apply -f service.yaml"
+          ssh -o StrictHostKeyChecking=no -i /home/ec2-user/.ssh/test.pem ubuntu@43.205.240.113 "kubectl apply -f -" < deployment.yaml
+          ssh -o StrictHostKeyChecking=no -i /home/ec2-user/.ssh/test.pem ubuntu@43.205.240.113 "kubectl apply -f -" < service.yaml
