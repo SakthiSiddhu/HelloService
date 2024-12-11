@@ -45,3 +45,51 @@ jobs:
       run: |
         IMAGE_NAME="sakthisiddu1/helloservice:${{ github.run_number }}"
         docker push $IMAGE_NAME
+  deploy:
+    runs-on: self-hosted  # Use your self-hosted runner named 'my-runner'
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Create deployment and service YAML files
+      run: |
+        echo "apiVersion: apps/v1
+        kind: Deployment
+        metadata:
+          name: helloservice-deployment
+        spec:
+          replicas: 1
+          selector:
+            matchLabels:
+              app: helloservice
+          template:
+            metadata:
+              labels:
+                app: helloservice
+            spec:
+              containers:
+              - name: helloservice
+                image: ratneshpuskar/helloservice:${{ github.run_number }}
+                ports:
+                - containerPort: 5000
+        " > deployment.yaml
+        
+        echo "apiVersion: v1
+        kind: Service
+        metadata:
+          name: helloservice-service
+        spec:
+          type: NodePort
+          selector:
+            app: helloservice
+          ports:
+            - port: 5000
+              nodePort: 30007
+        " > service.yaml
+
+    - name: Apply deployment and service to Kubernetes
+      run: |
+        ssh -o StrictHostKeyChecking=no ubuntu@43.205.240.113 "kubectl apply -f - < deployment.yaml"
+        ssh -o StrictHostKeyChecking=no ubuntu@43.205.240.113 "kubectl apply -f - < service.yaml"
+         
