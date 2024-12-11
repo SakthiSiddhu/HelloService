@@ -46,7 +46,8 @@ jobs:
         IMAGE_NAME="sakthisiddu1/helloservice:${{ github.run_number }}"
         docker push $IMAGE_NAME
   deploy:
-    runs-on: self-hosted  # Use your self-hosted runner named 'my-runner'
+    runs-on: self-hosted
+    needs: push_image
 
     steps:
     - name: Checkout code
