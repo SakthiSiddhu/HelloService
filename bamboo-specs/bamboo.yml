@@ -1,0 +1,41 @@
+version: 2
+plan:
+  project-key: "JAVA"        # Replace with your Bamboo project key
+  key: "BUILD"               # Replace with your plan key (unique identifier for this plan)
+  name: "Maven Build and Docker Deploy Plan"
+stages:
+  - Build and Deploy:
+      - Maven Build Job
+      - Docker Build and Push Job
+
+# Job 1: Maven Build
+Maven Build Job:
+  tasks:
+    - script:
+        interpreter: /bin/bash
+        inline: |
+          mvn clean install   # Run the Maven build command to clean and install your project
+
+# Job 2: Docker Build and Push
+Docker Build and Push Job:
+  tasks:
+    # Step 1: Docker Build (build the Docker image)
+    - script:
+        interpreter: /bin/bash
+        inline: |
+          docker build -t helloservice-jenkins:latest .   # Build Docker image using Dockerfile
+
+    # Step 2: Docker Login (authenticate with Docker Hub or your registry)
+    - script:
+        interpreter: /bin/bash
+        inline: |
+          echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin  # Login to Docker Hub
+        environment-variables:
+          DOCKER_USERNAME: sakthisiddu1
+          DOCKER_PASSWORD: Sakthisid@1
+
+    # Step 3: Docker Push (push the Docker image to the registry)
+    - script:
+        interpreter: /bin/bash
+        inline: |
+          docker push sakthisiddu1/helloservice-jenkins:latest   # Push the image to Docker registry
